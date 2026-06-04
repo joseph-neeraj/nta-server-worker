@@ -2,8 +2,10 @@
 // Docs: https://developer.nationaltransport.ie/api-details#api=gtfsr
 // Set your API key: wrangler secret put NTA_API_KEY
 
+import { FeedMessage } from "./generated/res/gtfs-realtime";
+
 const NTA_BASE = "https://api.nationaltransport.ie/gtfsr/v2";
-const CACHE_TTL = 10; // seconds — GTFS-RT updates every ~10-30s
+const CACHE_TTL = 65; // seconds — GTFS-RT updates every ~10-30s
 
 // Maps our exposed paths to NTA upstream paths
 const ROUTES: Record<string, string> = {
@@ -21,8 +23,15 @@ export default {
 			return new Response("Not Found", { status: 404 });
 		}
 
+		const accept = request.headers.get("Accept");
+		if (accept !== "application/x-protobuf" && accept !== "application/json") {
+			return new Response("Not Acceptable: use application/x-protobuf or application/json", { status: 406 });
+		}
+
 		const upstream = new URL(NTA_BASE + upstreamPath);
-		searchParams.forEach((v, k) => upstream.searchParams.set(k, v));
+		// always fetch protobuf from NTA; JSON conversion is done here if needed
+		// not needed as the GTFS API does not have any query params ( just format=json, which we're handling internally anyway)
+		// searchParams.forEach((v, k) => upstream.searchParams.set(k, v));
 
 		// Check Cloudflare cache
 		const cache = caches.default;
@@ -42,7 +51,18 @@ export default {
 		// Build cacheable response
 		const headers = new Headers(ntaRes.headers);
 		headers.set("Cache-Control", `public, max-age=${CACHE_TTL}`);
-		const response = new Response(ntaRes.body, { status: ntaRes.status, headers });
+		headers.set("Content-Type", accept);
+
+		let body: BodyInit;
+		if (accept === "application/json") {
+			const buf = await ntaRes.arrayBuffer();
+			const feed = FeedMessage.decode(new Uint8Array(buf));
+			body = JSON.stringify(FeedMessage.toJSON(feed));
+		} else {
+			body = ntaRes.body!;
+		}
+
+		const response = new Response(body, { status: ntaRes.status, headers });
 
 		ctx.waitUntil(cache.put(cacheKey, response.clone()));
 		return response;

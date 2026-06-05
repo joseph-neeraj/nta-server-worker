@@ -18,6 +18,7 @@ export const gtfsrPaths = new Set(Object.keys(ROUTES));
 
 export async function handleGtfsr(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 	const { pathname } = new URL(request.url);
+
 	const upstreamPath = ROUTES[pathname];
 
 	const accept = request.headers.get("Accept");
@@ -69,4 +70,39 @@ export async function handleGtfsr(request: Request, env: Env, ctx: ExecutionCont
 
 	ctx.waitUntil(cache.put(cacheKey, response.clone()));
 	return response;
+}
+
+export type StopDelayUpdate = {
+	stop_sequence: number | null;
+	stop_id: string | null;
+	arrival_delay: number | null;
+	departure_delay: number | null;
+};
+
+/**
+ * Returns per-stop delay updates for a trip from the live TripUpdates feed.
+ * Returns null if the upstream call fails or the trip has no TripUpdate entity.
+ */
+export async function getTripDelayUpdates(
+	trip_id: string,
+	env: Env,
+	ctx: ExecutionContext
+): Promise<StopDelayUpdate[] | null> {
+	const syntheticReq = new Request("https://worker/TripUpdates", {
+		headers: { Accept: "application/x-protobuf" },
+	});
+	const upstreamRes = await handleGtfsr(syntheticReq, env, ctx);
+	if (!upstreamRes.ok) return null;
+
+	const bytes = new Uint8Array(await upstreamRes.arrayBuffer());
+	const feed = FeedMessage.decode(bytes);
+	const entity = feed.entity.find((e) => e.tripUpdate?.trip?.tripId === trip_id);
+	if (!entity?.tripUpdate) return null;
+
+	return entity.tripUpdate.stopTimeUpdate.map((stu) => ({
+		stop_sequence: stu.stopSequence ?? null,
+		stop_id: stu.stopId ?? null,
+		arrival_delay: stu.arrival?.delay ?? null,
+		departure_delay: stu.departure?.delay ?? null,
+	}));
 }

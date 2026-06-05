@@ -1,0 +1,87 @@
+{
+  "header": {
+    "gtfs_realtime_version": "2.0",
+    "incrementality": "FULL_DATASET",
+    "timestamp": "1780668623"
+  },
+  "entity": [
+    {
+      "id": "T1",
+      "trip_update": {
+        "trip": {
+          "trip_id": "5693_117820",
+          "start_time": "08:45:00",
+          "start_date": "20260605",
+          "schedule_relationship": "SCHEDULED",
+          "route_id": "2 64 d a",
+          "direction_id": 1
+        },
+        "stop_time_update": [
+          {
+            "stop_sequence": 30,
+            "arrival": {
+              "delay": 2442
+            },
+            "departure": {
+              "delay": 2442
+            },
+            "stop_id": "8530B1581501",
+            "schedule_relationship": "SCHEDULED"
+          },
+          {
+            "stop_sequence": 31,
+            "arrival": {
+              "delay": 2438
+            },
+            "departure": {
+              "delay": 2438
+            },
+            "stop_id": "8530B158231",
+            "schedule_relationship": "SCHEDULED"
+          },
+          {
+            "stop_sequence": 32,
+            "arrival": {
+              "delay": 2358
+            },
+            "stop_id": "7010B158131",
+            "schedule_relationship": "SCHEDULED"
+          }
+        ],
+        "timestamp": "1780668623"
+      }
+    },
+    {
+      "id": "T2",
+      "trip_update": {
+        "trip": {
+          "trip_id": "5693_116316",
+          "start_time": "10:25:00",
+          "start_date": "20260605",
+          "schedule_relationship": "SCHEDULED",
+          "route_id": "2 51 c b",
+          "direction_id": 0
+        },
+        "stop_time_update": [
+          {
+            "stop_sequence": 23,
+            "arrival": {
+              "delay": 379
+            },
+            "stop_id": "8460B5228401",
+            "schedule_relationship": "SCHEDULED"
+          },
+          {
+            "stop_sequence": 24,
+            "arrival": {
+              "delay": 237
+            },
+            "stop_id": "8460B5550401",
+            "schedule_relationship": "SCHEDULED"
+          }
+        ],
+        "timestamp": "1780668623"
+      }
+    }
+  ]
+}

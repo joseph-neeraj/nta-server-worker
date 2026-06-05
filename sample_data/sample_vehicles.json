@@ -1,0 +1,53 @@
+{
+  "header": {
+    "gtfs_realtime_version": "2.0",
+    "incrementality": "FULL_DATASET",
+    "timestamp": "1780666542"
+  },
+  "entity": [
+    {
+      "id": "V1",
+      "vehicle": {
+        "trip": {
+          "trip_id": "5675_709",
+          "start_time": "13:35:00",
+          "start_date": "20260605",
+          "schedule_relationship": "SCHEDULED",
+          "route_id": "03C 126 e a",
+          "direction_id": 0
+        },
+        "position": {
+          "latitude": 53.2461052,
+          "longitude": -6.59662724,
+          "bearing": 270
+        },
+        "timestamp": "1780666510",
+        "vehicle": {
+          "id": "3"
+        }
+      }
+    },
+    {
+      "id": "V2",
+      "vehicle": {
+        "trip": {
+          "trip_id": "5675_85",
+          "start_time": "14:00:00",
+          "start_date": "20260605",
+          "schedule_relationship": "SCHEDULED",
+          "route_id": "03C 120 e a",
+          "direction_id": 0
+        },
+        "position": {
+          "latitude": 53.3587227,
+          "longitude": -6.42067719,
+          "bearing": 270
+        },
+        "timestamp": "1780666510",
+        "vehicle": {
+          "id": "5"
+        }
+      }
+    }
+  ]
+}

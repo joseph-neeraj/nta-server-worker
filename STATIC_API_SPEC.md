@@ -80,3 +80,30 @@ Returns the route polyline. Points are compact `[lat, lon, dist_meters]` triples
 ```
 
 The third value in each triple is `shape_dist_traveled` in metres from the trip start.
+
+---
+
+## Realtime endpoint (`src/gtfsr.ts`)
+
+### `GET /realtime/trip-delays?trip_id=<trip_id>`
+
+Returns the delay data for a single trip, extracted from the NTA `/TripUpdates` feed. The full TripUpdates feed is already fetched and cached by the worker for 65s — this endpoint just decodes it and filters to the requested `trip_id`, so the cost is minimal.
+
+Add this route to the existing `ROUTES` map in `src/gtfsr.ts` (or handle it separately within `handleGtfsr`), then decode the protobuf, find the matching `TripUpdate` entity, and return its stop-time updates as JSON.
+
+**Response — 200 OK `application/json`:**
+```json
+{
+  "trip_id": "5675_709",
+  "stop_time_updates": [
+    { "stop_sequence": 30, "stop_id": "8530B1581501", "arrival_delay": 2442, "departure_delay": 2442 },
+    { "stop_sequence": 31, "stop_id": "8530B158231",  "arrival_delay": 2438, "departure_delay": 2438 },
+    { "stop_sequence": 32, "stop_id": "7010B158131",  "arrival_delay": 2358, "departure_delay": null }
+  ]
+}
+```
+
+- `arrival_delay` / `departure_delay`: seconds, positive = late. `null` if not present in the feed for that stop.
+- The feed only includes **remaining stops** — stops already passed are omitted.
+- Return `404` if no `TripUpdate` entity matches the `trip_id` (bus may have finished its trip).
+- Do **not** cache this response — delays change every ~30s.

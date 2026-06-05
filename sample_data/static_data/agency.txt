@@ -1,0 +1,106 @@
+agency_id,agency_name,agency_url,agency_timezone
+026,Bernard Kavanagh & Sons,http://www.bernardkavanaghcoaches.com,Europe/London
+03C,Go-Ahead Ireland,https://www.goaheadireland.ie/,Europe/London
+060,Sillan Tours,https://www.transportforireland.ie,Europe/London
+1,Bus Átha Cliath – Dublin Bus,https://www.dublinbus.ie/,Europe/London
+10000,LUAS,https://luas.ie,Europe/London
+1009,Eamon McEntee,https://mcenteecoachhire.ie/,Europe/London
+1011,Leydons Coaches,https://leydonscoaches.com/,Europe/London
+1014,Gorey Bus Links,http://www.goreybuslinks.ie/,Europe/London
+1016,Gleneagle Hotel,https://www.gleneaglehotel.com/,Europe/London
+1024,Tralee People's Bus Service,http://www.transportforireland.ie,Europe/London
+1030,McGonagle Bus and Coach Hire,https://www.mcgonaglebushire.com/,Europe/London
+1049,Ashbourne Connect,https://www.ashbourneconnect.ie,Europe/London
+1059,Healy Bus,http://www.healybus.com/,Europe/London
+1092,Royal Breffni Tours,https://www.royalbreffnitours.com/,Europe/London
+1131,Flight Link Limited,https://www.flightlink.ie,Europe/London
+1134,Reilly Bus Hire,https://www.transportforireland.ie,Europe/London
+1135,Joe Moroney Coach Hire Ltd,https://www.transportforireland.ie,Europe/London
+1147,McGonagle Bus and Coach Ltd.,https://mcgonaglebus.ie/,Europe/London
+1148,Pat Keenan Coach Hire,https://www.transportforireland.ie,Europe/London
+1156,Walshs Coaches,https://www.transportforireland.ie,Europe/London
+1178,Dublin Express,https://www.dublinexpress.ie/,Europe/London
+1179,Nolan Coaches,https://www.nolancoaches.ie/,Europe/London
+1181,TU Dublin Blanchardstown,https://www.tudublin.ie/explore/our-campuses/blanchardstown/transportparking/,Europe/London
+1184,Eugene Deffely,https://www.transportforireland.ie,Europe/London
+1206,MCD Minibus Hire,https://www.transportforireland.ie,Europe/London
+1211,McCaffrey Coaches,http://www.mccaffreycoaches.com/,Europe/London
+1212,Kelly Travel,http://www.kellytravel.ie/,Europe/London
+1223,McGill Coach Travel,https://www.mcgilltravel.wordpress.com,Europe/London
+1256,Bus4u,https://roscommoncoaches.ie/,Europe/London
+132,Doherty's Travel,https://www.dohertyscoaches.com/,Europe/London
+135,Swords Express,https://www.swordsexpress.com/,Europe/London
+2,Bus Éireann,https://buseireann.ie,Europe/London
+200,Burkesbus,https://burkesbus.ie/,Europe/London
+214,Ardcavan Coach Tours,https://ardcavan.com/,Europe/London
+218,Cork Cobh Connect,http://www.barryscoaches.com/,Europe/London
+219,McGeehan Coaches,http://www.mcgeehancoaches.com/,Europe/London
+240,Kearns Transport,https://kearnstransport.com/,Europe/London
+275,Island Ferries Teoranta,https://www.aranislandferries.com/,Europe/London
+290,St. Kevin's Bus Service,http://www.glendaloughbus.com/,Europe/London
+291,Halpenny Travel,https://www.halpennytravel.com/,Europe/London
+292,City Direct,https://www.citydirect.ie/,Europe/London
+293,JJ Kavanagh,https://jjkavanagh.ie/#,Europe/London
+3,Go-Ahead Ireland,https://www.goaheadireland.ie/,Europe/London
+312,Patrick Gallagher Travel,https://www.patrickgallaghertravel.com/patrick-gallagher-bus-timetables/,Europe/London
+314,Westlink Coaches,http://www.westlinkcoaches.ie/,Europe/London
+317,Dunnes Coaches,https://dunnescoaches.com/,Europe/London
+3376,Flagline Coaches,https://www.transportforireland.ie,Europe/London
+351,Farragher Travel,https://www.transportforireland.ie,Europe/London
+355,Treacy Coaches,https://www.transportforireland.ie,Europe/London
+363,McGrath Coaches,https://mcgrathcoaches.com/,Europe/London
+391,Corduff Travel,https://cordufftravel.ie/,Europe/London
+429,Slevins Coaches,http://slevinscoaches.com/,Europe/London
+483,Farrelly's Coaches,https://www.farrellyscoaches.com/,Europe/London
+514,Mangan Tours,https://www.mangantours.ie/,Europe/London
+526,Citylink,https://www.citylink.ie/,Europe/London
+573,Matthews Coach Hire,https://www.matthews.ie/,Europe/London
+587,Wexford Bus,https://www.wexfordbus.com/,Europe/London
+593,Joseph Foley,https://www.transportforireland.ie,Europe/London
+598,Barrett Coaches,https://www.barrettcoaches.com/,Europe/London
+609,John McGinley Coach Travel,http://www.johnmcginley.com/,Europe/London
+610,Harrington's Ardgroom,https://www.harringtonsardgroom.com/bus-service,Europe/London
+616,Michael Moran,https://www.transportforireland.ie,Europe/London
+619,Madigan's Bus Hire,http://www.transportforireland.ie,Europe/London
+620,Michael Gray Coach Hire,https://www.michaelgraycoaches.ie/,Europe/London
+640,Roscommon Coaches,https://roscommoncoaches.ie/,Europe/London
+646,Robbie Finegan Coaches,https://www.transportforireland.ie,Europe/London
+663,Aircoach,https://www.aircoach.ie/,Europe/London
+685,Streamline Coaches,https://www.streamlinecoaches.ie/,Europe/London
+690,McConnon Travel,http://www.mcconnonsbuses.com/,Europe/London
+700,Slieve Bloom Coach Tours,http://www.slievebloomcoaches.ie/,Europe/London
+707,BIFE Bus,http://www.goreycoachandbus.com/,Europe/London
+708,Matt Whelan Mini Bus Hire,https://www.transportforireland.ie,Europe/London
+744,Patrick Gallagher,http://www.gallagherscoaches.com/,Europe/London
+754,K Buggy Coaches,https://www.kbuggycoaches.com/,Europe/London
+842,Bailieboro Car & Coach Hire,https://www.transportforireland.ie,Europe/London
+849,West Cork Connect,https://westcorkconnect.ie/,Europe/London
+866,Collins Coaches,https://collinscoaches.ie/,Europe/London
+870,Dublin Coach,https://www.dublincoach.ie/,Europe/London
+875,Kennedy Coaches,https://kennedycoaches.com/,Europe/London
+940,Martley's,https://martleys.com/,Europe/London
+967,Bus Feda,https://busfeda.ie/,Europe/London
+969,Allen's Bus Hire,https://allensbushire.ie/,Europe/London
+972,Piltown Coaches,http://piltowncoaches.com/,Europe/London
+999,Express Bus,https://expressbus.ie/,Europe/London
+BCE,Burren and Cliffs Explorer,https://www.cliffsofmoher.ie/burren-and-cliffs-of-moher-explorer/,Europe/London
+Carolan,Balbriggan Express,http://www.carolancoachhire.ie/,Europe/London
+IR,Iarnród Éireann / Irish Rail,https://www.irishrail.ie/en-ie/,Europe/London
+JJBK,JJ/Bernard Kavanagh,https://jjkavanagh.ie/#,Europe/London
+LLCK,TFI Local Link Cork,https://locallinkcork.ie/,Europe/London
+LLCN,TFI Local Link Cavan Monaghan,https://www.locallinkcm.ie/,Europe/London
+LLCWKK,TFI Local Link Carlow Kilkenny Wicklow,https://www.locallinkckw.ie/,Europe/London
+LLDSL,TFI Local Link Donegal Sligo Leitrim,https://locallinkdsl.ie/,Europe/London
+LLGY,TFI Local Link Galway,https://www.locallinkgalway.ie/,Europe/London
+LLKE,TFI Local Link Kildare South Dublin,https://locallinkkildaresouthdublin.ie/,Europe/London
+LLKY,TFI Local Link Kerry,https://www.locallinkkerry.ie/,Europe/London
+LLLC,TFI Local Link Limerick Clare,https://www.locallinklc.ie/,Europe/London
+LLLMF,TFI Local Link Louth Meath Fingal,https://www.locallinklmf.ie/,Europe/London
+LLLO,TFI Local Link Laois Offaly,https://locallinklaoisoffaly.ie/,Europe/London
+LLLW,TFI Local Link Longford Westmeath Roscommon,https://locallinklwr.ie/,Europe/London
+LLMO,TFI Local Link Mayo,https://www.locallinkmayo.ie/,Europe/London
+LLTY,TFI Local Link Tipperary,https://locallinktipperary.ie/,Europe/London
+LLWD,TFI Local Link Waterford,https://www.locallinkwaterford.ie/,Europe/London
+LLWX,TFI Local Link Wexford,https://locallinkwexford.ie/,Europe/London
+NTLK,"Nitelink, Dublin Bus",https://www.dublinbus.ie/,Europe/London
+WFRD,Bus Éireann Waterford,https://www.buseireann.ie,Europe/London

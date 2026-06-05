@@ -8,10 +8,14 @@
     "start": "wrangler dev",
     "test": "vitest",
     "cf-typegen": "wrangler types",
-    "proto": "protoc --plugin=protoc-gen-ts_proto=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=src/generated --ts_proto_opt=esModuleInterop=true,forceLong=number,env=browser res/gtfs-realtime.proto"
+    "proto": "protoc --plugin=protoc-gen-ts_proto=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=src/generated --ts_proto_opt=esModuleInterop=true,forceLong=number,env=browser res/gtfs-realtime.proto",
+    "generate-gtfs-sql": "node scripts/generate-gtfs-sql.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.12.4",
+    "adm-zip": "^0.5.16",
+    "chalk": "^5.4.1",
+    "ora": "^8.2.0",
     "@types/node": "^25.9.1",
     "ts-proto": "^2.11.8",
     "typescript": "^5.5.2",

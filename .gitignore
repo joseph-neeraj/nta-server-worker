@@ -8,6 +8,11 @@ yarn-error.log*
 lerna-debug.log*
 .pnpm-debug.log*
 
+# GTFS import artefacts (large generated files, kept locally for inspection)
+gtfs_*.sql
+gtfs_*.zip
+.gtfs_last_sql
+
 # Diagnostic reports (https://nodejs.org/api/report.html)
 
 report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json

@@ -78,8 +78,9 @@ CREATE TABLE IF NOT EXISTS trips (
 
 CREATE TABLE IF NOT EXISTS stop_times (
   trip_id        TEXT    NOT NULL,
-  arrival_time   TEXT    NOT NULL,
-  departure_time TEXT    NOT NULL,
+  -- GTFS spec allows empty arrival/departure for non-timepoint intermediate stops
+  arrival_time   TEXT,
+  departure_time TEXT,
   stop_id        TEXT    NOT NULL,
   stop_sequence  INTEGER NOT NULL,
   stop_headsign  TEXT,

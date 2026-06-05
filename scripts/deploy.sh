@@ -9,6 +9,7 @@ RESET='\033[0m'
 
 echo -e "${YELLOW}▶ Deploying nta-server-worker to Cloudflare${RESET}"
 
+
 npm run deploy
 
 echo -e "\n${GREEN}${BOLD}✔ Deployed${RESET}"

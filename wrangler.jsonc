@@ -13,6 +13,13 @@
 	"upload_source_maps": true,
 	"compatibility_flags": [
 		"nodejs_compat"
+	],
+	"d1_databases": [
+		{
+			"binding": "nta_static",
+			"database_name": "nta-static",
+			"database_id": "7c79495c-5b29-4b31-a760-209eee1c1f95"
+		}
 	]
 	/**
 	 * Smart Placement

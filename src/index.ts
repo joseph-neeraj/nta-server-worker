@@ -24,8 +24,13 @@ export default {
 		}
 
 		const accept = request.headers.get("Accept");
-		if (accept !== "application/x-protobuf" && accept !== "application/json") {
-			return new Response("Not Acceptable: use application/x-protobuf or application/json", { status: 406 });
+
+		// turn it onw only when debugging the app. use:
+		// npx wrangler secret put ENABLE_JSON
+		const jsonEnabled = env.ENABLE_JSON === "true";
+		if (accept !== "application/x-protobuf" && (accept !== "application/json" || !jsonEnabled)) {
+			const jsonDisabled = accept === "application/json" && !jsonEnabled;
+			return new Response(jsonDisabled ? null : "Not Acceptable", { status: 406 });
 		}
 
 		const upstream = new URL(NTA_BASE + upstreamPath);
@@ -54,6 +59,7 @@ export default {
 		headers.set("Content-Type", accept);
 
 		let body: BodyInit;
+		// json will be used only rarely when debugging the clients
 		if (accept === "application/json") {
 			const buf = await ntaRes.arrayBuffer();
 			const feed = FeedMessage.decode(new Uint8Array(buf));

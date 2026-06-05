@@ -1,0 +1,40 @@
+table_name,field_name,language,translation,record_id,field_value
+agency,agency_name,ga,Nasc Áitiúil TFI An Cabhán Muineachán,,TFI Local Link Cavan Monaghan
+agency,agency_name,ga,Nasc Áitiúil TFI An Longfort An Iarmhí Ros Comáin,,TFI Local Link Longford Westmeath Roscommon
+agency,agency_name,ga,Nasc Áitiúil TFI Ceatharlach Cill Chainnigh Cill Mhantáin,,TFI Local Link Carlow Kilkenny Wicklow
+agency,agency_name,ga,Nasc Áitiúil TFI Ciarraí,,TFI Local Link Kerry
+agency,agency_name,ga,Nasc Áitiúil TFI Cill Dara Baile Átha Cliath Theas,,TFI Local Link Kildare South Dublin
+agency,agency_name,ga,Nasc Áitiúil TFI Corcaigh,,TFI Local Link Cork
+agency,agency_name,ga,Nasc Áitiúil TFI Dún na nGall Sligeach Liatroim,,TFI Local Link Donegal Sligo Leitrim
+agency,agency_name,ga,Nasc Áitiúil TFI Gaillimh,,TFI Local Link Galway
+agency,agency_name,ga,Nasc Áitiúil TFI Laois Uíbh Fhailí,,TFI Local Link Laois Offaly
+agency,agency_name,ga,Nasc Áitiúil TFI Loch Garman,,TFI Local Link Wexford
+agency,agency_name,ga,Nasc Áitiúil TFI Lú An Mhí Fine Gall,,TFI Local Link Louth Meath Fingal
+agency,agency_name,ga,Nasc Áitiúil TFI Luimneach An Clár,,TFI Local Link Limerick Clare
+agency,agency_name,ga,Nasc Áitiúil TFI Maigh Eo,,TFI Local Link Mayo
+agency,agency_name,ga,Nasc Áitiúil TFI Port Láirge,,TFI Local Link Waterford
+agency,agency_name,ga,Nasc Áitiúil TFI Tiobraid Árann,,TFI Local Link Tipperary
+agency,agency_name,ga,Taiscéalaí Bhoirne agus Aillte,,Burren and Cliffs Explorer
+routes,route_long_name,ga,Aillte an Mhothair - Gaillimh,,Cliffs of Moher - Galway
+routes,route_long_name,ga,Ailt an Chorráin - Leitir Ceanainn,,Ailt an Chorráin - Letterkenny
+routes,route_long_name,ga,An Airgnigh - Mainistir na Búille,,Arigna - Boyle
+routes,route_long_name,ga,An Baile Dubh Uachtarach - Dún Garbhán,,Ballyduff Upper - Dungarvan
+routes,route_long_name,ga,An Cabhán - Muineachán,,Cavan - Monaghan
+routes,route_long_name,ga,An Caisleán Nua - An Ráth,,Newcastle West - Charleville
+routes,route_long_name,ga,An Caisleán Nua - Bun Cranncha,,Greencastle - Buncrana
+routes,route_long_name,ga,An Caisleán Nua - Doire,,Greencastle - Derry
+routes,route_long_name,ga,An Caisleán Nua - Leitir Ceanainn,,Greencastle - Letterkenny
+routes,route_long_name,ga,An Caisleán Riabhach - Béal Átha na Sluaighe,,Castlerea - Ballinasloe
+routes,route_long_name,ga,An Caisleán Riabhach - Sligeach,,Castlerea - Sligo
+routes,route_long_name,ga,An Carraigín - Leitir Ceanainn,,Carrigans - Letterkenny
+routes,route_long_name,ga,An Cheathrú Rua - An Clochán,,An Cheathrú Rua - Clifden
+routes,route_long_name,ga,An Clochán - Leitir Ceanainn,,An Clochán - Letterkenny
+routes,route_long_name,ga,An Cnoc Rua - Ospidéal an Chabháin,,Redhills - Cavan Hospital
+routes,route_long_name,ga,An Coireán - Cill Airne,,Waterville - Killarney
+routes,route_long_name,ga,An Coireán - Neidín,,Waterville - Kenmare
+routes,route_long_name,ga,An Fál Carrach - An Clochán Liath,,An Fál Carrach - An Clochán Liath
+routes,route_long_name,ga,An Fhianait - Trá Lí,,Fenit - Tralee
+routes,route_long_name,ga,An Geata Bán - Inis,,Whitegate - Ennis
+routes,route_long_name,ga,An Gort - Baile Locha Riach,,Gort - Loughrea
+routes,route_long_name,ga,An Longfort - An Cabhán,,Longford - Cavan
+routes,route_long_name,ga,An Longfort - An Muileann gCearr,,Longford - Mullingar

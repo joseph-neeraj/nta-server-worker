@@ -44,16 +44,25 @@ export async function handleVehicles(request: Request, env: Env, ctx: ExecutionC
 
 		const lookup = new Map<string, TripRow>();
 		if (tripIds.length > 0) {
-			const placeholders = tripIds.map(() => "?").join(",");
-			const { results } = await env.nta_static
-				.prepare(
-					`SELECT t.trip_id, t.trip_headsign, r.route_short_name
-					 FROM trips t JOIN routes r ON t.route_id = r.route_id
-					 WHERE t.trip_id IN (${placeholders})`,
-				)
-				.bind(...tripIds)
-				.all<TripRow>();
-			for (const row of results) lookup.set(row.trip_id, row);
+			// D1 caps bound parameters at 100 per query — chunk and batch
+			const chunks: string[][] = [];
+			for (let i = 0; i < tripIds.length; i += 100) chunks.push(tripIds.slice(i, i + 100));
+
+			const batchResults = await env.nta_static.batch<TripRow>(
+				chunks.map((chunk) => {
+					const placeholders = chunk.map(() => "?").join(",");
+					return env.nta_static
+						.prepare(
+							`SELECT t.trip_id, t.trip_headsign, r.route_short_name
+							 FROM trips t JOIN routes r ON t.route_id = r.route_id
+							 WHERE t.trip_id IN (${placeholders})`,
+						)
+						.bind(...chunk);
+				}),
+			);
+			for (const { results } of batchResults) {
+				for (const row of results) lookup.set(row.trip_id, row);
+			}
 		}
 
 		enriched = {

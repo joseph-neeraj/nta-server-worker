@@ -1,0 +1,107 @@
+// Handler for GET /vehicles
+//
+// Returns an enriched vehicle feed: all active vehicles with their real-time
+// positions plus route_short_name and trip_headsign from the static GTFS data.
+// The enriched response is cached on the CF edge for 65 seconds (matching the
+// NTA feed cadence), so the D1 join only runs on cache misses.
+
+import { NtaClient, CACHE_TTL } from "./nta-client";
+import { VehiclesFeed } from "./generated/res/nta";
+
+type TripRow = { trip_id: string; trip_headsign: string | null; route_short_name: string | null };
+
+export async function handleVehicles(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+	const accept = request.headers.get("Accept");
+	const jsonEnabled = env.ENABLE_JSON === "true";
+
+	if (accept !== "application/x-protobuf" && (accept !== "application/json" || !jsonEnabled)) {
+		return new Response(accept === "application/json" ? null : "Not Acceptable", { status: 406 });
+	}
+
+	// Always cache proto bytes — one cache entry regardless of the requested format.
+	// JSON is cheap to derive on the fly from the decoded proto.
+	const cache = caches.default;
+	const cacheKey = new Request("https://nta-worker-cache/vehicles/enriched", { method: "GET" });
+	const cachedProto = await cache.match(cacheKey);
+
+	// Proto cache hit — return directly without any decode/re-encode work
+	if (cachedProto && accept !== "application/json") return cachedProto;
+
+	let enriched: VehiclesFeed;
+
+	if (cachedProto) {
+		// JSON was requested but proto is already cached — decode and convert
+		enriched = VehiclesFeed.decode(new Uint8Array(await cachedProto.arrayBuffer()));
+	} else {
+		// Cache miss — fetch from NTA and enrich with D1 static data
+		const feed = await new NtaClient(env, ctx).fetchVehicles();
+		if (!feed) return new Response("Upstream error", { status: 502 });
+
+		// Collect all trip_ids so we can fetch enrichment data in a single D1 query
+		const tripIds = feed.entity
+			.map((e) => e.vehicle?.trip?.tripId)
+			.filter((id): id is string => Boolean(id));
+
+		const lookup = new Map<string, TripRow>();
+		if (tripIds.length > 0) {
+			const placeholders = tripIds.map(() => "?").join(",");
+			const { results } = await env.nta_static
+				.prepare(
+					`SELECT t.trip_id, t.trip_headsign, r.route_short_name
+					 FROM trips t JOIN routes r ON t.route_id = r.route_id
+					 WHERE t.trip_id IN (${placeholders})`,
+				)
+				.bind(...tripIds)
+				.all<TripRow>();
+			for (const row of results) lookup.set(row.trip_id, row);
+		}
+
+		enriched = {
+			timestamp: feed.header?.timestamp ?? 0,
+			entity: feed.entity
+				.filter((e) => e.vehicle != null)
+				.map((e) => {
+					const v = e.vehicle!;
+					const tripId = v.trip?.tripId ?? "";
+					const row = lookup.get(tripId);
+					return {
+						id: e.id,
+						tripId,
+						routeId: v.trip?.routeId ?? "",
+						directionId: v.trip?.directionId ?? 0,
+						latitude: v.position?.latitude ?? 0,
+						longitude: v.position?.longitude ?? 0,
+						bearing: v.position?.bearing ?? 0,
+						timestamp: v.timestamp ?? 0,
+						vehicleId: v.vehicle?.id ?? "",
+						routeShortName: row?.route_short_name ?? "",
+						tripHeadsign: row?.trip_headsign ?? "",
+					};
+				}),
+		};
+
+		// Store proto bytes in the cache for subsequent requests
+		ctx.waitUntil(
+			cache.put(
+				cacheKey,
+				new Response(VehiclesFeed.encode(enriched).finish(), {
+					headers: {
+						"Content-Type": "application/x-protobuf",
+						"Cache-Control": `public, max-age=${CACHE_TTL}`,
+					},
+				}),
+			),
+		);
+	}
+
+	if (accept === "application/json") {
+		return new Response(JSON.stringify(VehiclesFeed.toJSON(enriched)), {
+			headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${CACHE_TTL}` },
+		});
+	}
+
+	return new Response(VehiclesFeed.encode(enriched).finish(), {
+		headers: { "Content-Type": "application/x-protobuf", "Cache-Control": `public, max-age=${CACHE_TTL}` },
+	});
+}
+

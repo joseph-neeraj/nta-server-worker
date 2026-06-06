@@ -1,14 +1,13 @@
-import { gtfsrPaths, handleGtfsr } from "./gtfsr";
-import { handleStatic } from "./static";
+import { handleVehicles } from "./vehicles";
+import { handleVehicleDetails } from "./vehicle-details";
 
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
 		const { pathname } = new URL(request.url);
 
-		if (gtfsrPaths.has(pathname)) {
-			return handleGtfsr(request, env, ctx);
-		}
+		if (pathname === "/vehicles") return handleVehicles(request, env, ctx);
+		if (pathname === "/vehicle-details") return handleVehicleDetails(request, env, ctx);
 
-		return handleStatic(request, env, ctx);
+		return new Response("Not Found", { status: 404 });
 	},
 } satisfies ExportedHandler<Env>;

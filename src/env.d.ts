@@ -4,7 +4,4 @@ interface Env {
 	NTA_API_KEY_2: string;
 	HMAC_SECRET: string;
 	JWT_SECRET: string;
-	ENABLE_JSON?: string;
-	nta_static: D1Database;
-	RATE_LIMIT_KV: KVNamespace;
 }

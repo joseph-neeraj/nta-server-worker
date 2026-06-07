@@ -1,4 +1,4 @@
-// Handler for GET /vehicle-details?trip_id=<trip_id>
+// Handler for GET /v1/live/trips/{trip_id}
 //
 // Returns full trip information in a single response: static GTFS data
 // (route, stops, shape polyline) plus real-time stop delay data from the
@@ -47,9 +47,9 @@ export async function handleVehicleDetails(request: Request, env: Env, ctx: Exec
 		return new Response(accept === "application/json" ? null : "Not Acceptable", { status: 406 });
 	}
 
-	const trip_id = new URL(request.url).searchParams.get("trip_id");
+	const trip_id = new URL(request.url).pathname.split("/").pop() || "";
 	if (!trip_id) {
-		return new Response(JSON.stringify({ error: "Missing required parameter: trip_id" }), {
+		return new Response(JSON.stringify({ error: "Missing trip_id in path" }), {
 			status: 400,
 			headers: { "Content-Type": "application/json" },
 		});
@@ -57,7 +57,7 @@ export async function handleVehicleDetails(request: Request, env: Env, ctx: Exec
 
 	const cache = caches.default;
 	const cacheKey = new Request(
-		`https://nta-worker-cache/vehicle-details/${encodeURIComponent(trip_id)}`,
+		`https://nta-worker-cache/v1/live/trips/${encodeURIComponent(trip_id)}`,
 		{ method: "GET" },
 	);
 	const cachedProto = await cache.match(cacheKey);

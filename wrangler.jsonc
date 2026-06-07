@@ -23,7 +23,14 @@
 	],
 	"vars": {
 		"ENABLE_JSON": "true"
-	}
+	},
+	"kv_namespaces": [
+		{
+			"binding": "RATE_LIMIT_KV",
+			"id": "6de5bc8565ec4c5eb008fdbb1db3d902",
+			"remote": true
+		}
+	]
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

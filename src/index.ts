@@ -1,13 +1,10 @@
+import { Hono } from "hono";
 import { handleVehicles } from "./vehicles";
 import { handleVehicleDetails } from "./vehicle-details";
 
-export default {
-	async fetch(request, env, ctx): Promise<Response> {
-		const { pathname } = new URL(request.url);
+const app = new Hono<{ Bindings: Env }>();
 
-		if (pathname === "/v1/live/vehicles") return handleVehicles(request, env, ctx);
-		if (pathname.startsWith("/v1/live/trips/")) return handleVehicleDetails(request, env, ctx);
+app.get("/v1/live/vehicles", (c) => handleVehicles(c.req.raw, c.env, c.executionCtx as ExecutionContext));
+app.get("/v1/live/trips/:trip_id", (c) => handleVehicleDetails(c.req.raw, c.env, c.executionCtx as ExecutionContext));
 
-		return new Response("Not Found", { status: 404 });
-	},
-} satisfies ExportedHandler<Env>;
+export default app;

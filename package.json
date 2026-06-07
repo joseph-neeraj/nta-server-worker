@@ -9,7 +9,7 @@
     "test": "vitest",
     "cf-typegen": "wrangler types",
     "proto": "protoc --plugin=protoc-gen-ts_proto=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=src/generated --ts_proto_opt=esModuleInterop=true,forceLong=number,env=browser res/gtfs-realtime.proto res/nta.proto",
-    "generate-gtfs-sql": "node scripts/generate-gtfs-sql.mjs"
+    "publish-gtfs": "bash scripts/gtfs/publish.sh"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.12.4",

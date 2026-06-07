@@ -35,6 +35,8 @@ message VehicleEntity {
 
   string route_short_name = 10; // e.g. "120" — what passengers see on the bus
   string trip_headsign    = 11; // e.g. "Edenderry Town Hall" — destination on the bus
+  string agency_id        = 12;
+  string agency_name      = 13; // e.g. "Dublin Bus"
 }
 
 // ─── /v1/live/trips/{trip_id} ───────────────────────────────────────────────

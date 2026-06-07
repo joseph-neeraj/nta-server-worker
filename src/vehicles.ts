@@ -8,7 +8,7 @@
 import { NtaClient, CACHE_TTL } from "./nta-client";
 import { VehiclesFeed } from "./generated/res/nta";
 
-type TripRow = { trip_id: string; trip_headsign: string | null; route_short_name: string | null };
+type TripRow = { trip_id: string; trip_headsign: string | null; route_short_name: string | null; agency_id: string | null; agency_name: string | null };
 
 export async function handleVehicles(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 	const accept = request.headers.get("Accept");
@@ -53,8 +53,10 @@ export async function handleVehicles(request: Request, env: Env, ctx: ExecutionC
 					const placeholders = chunk.map(() => "?").join(",");
 					return env.nta_static
 						.prepare(
-							`SELECT t.trip_id, t.trip_headsign, r.route_short_name
-							 FROM trips t JOIN routes r ON t.route_id = r.route_id
+							`SELECT t.trip_id, t.trip_headsign, r.route_short_name, r.agency_id, a.agency_name
+							 FROM trips t
+							 JOIN routes r ON t.route_id = r.route_id
+							 JOIN agency a ON r.agency_id = a.agency_id
 							 WHERE t.trip_id IN (${placeholders})`,
 						)
 						.bind(...chunk);
@@ -85,6 +87,8 @@ export async function handleVehicles(request: Request, env: Env, ctx: ExecutionC
 						vehicleId: v.vehicle?.id ?? "",
 						routeShortName: row?.route_short_name ?? "",
 						tripHeadsign: row?.trip_headsign ?? "",
+						agencyId: row?.agency_id ?? "",
+						agencyName: row?.agency_name ?? "",
 					};
 				}),
 		};

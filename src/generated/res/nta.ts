@@ -39,6 +39,9 @@ export interface VehicleEntity {
   routeShortName: string;
   /** e.g. "Edenderry Town Hall" — destination on the bus */
   tripHeadsign: string;
+  agencyId: string;
+  /** e.g. "Dublin Bus" */
+  agencyName: string;
 }
 
 /**
@@ -184,6 +187,8 @@ function createBaseVehicleEntity(): VehicleEntity {
     vehicleId: "",
     routeShortName: "",
     tripHeadsign: "",
+    agencyId: "",
+    agencyName: "",
   };
 }
 
@@ -221,6 +226,12 @@ export const VehicleEntity: MessageFns<VehicleEntity> = {
     }
     if (message.tripHeadsign !== "") {
       writer.uint32(90).string(message.tripHeadsign);
+    }
+    if (message.agencyId !== "") {
+      writer.uint32(98).string(message.agencyId);
+    }
+    if (message.agencyName !== "") {
+      writer.uint32(106).string(message.agencyName);
     }
     return writer;
   },
@@ -320,6 +331,22 @@ export const VehicleEntity: MessageFns<VehicleEntity> = {
           message.tripHeadsign = reader.string();
           continue;
         }
+        case 12: {
+          if (tag !== 98) {
+            break;
+          }
+
+          message.agencyId = reader.string();
+          continue;
+        }
+        case 13: {
+          if (tag !== 106) {
+            break;
+          }
+
+          message.agencyName = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -366,6 +393,16 @@ export const VehicleEntity: MessageFns<VehicleEntity> = {
         : isSet(object.trip_headsign)
         ? globalThis.String(object.trip_headsign)
         : "",
+      agencyId: isSet(object.agencyId)
+        ? globalThis.String(object.agencyId)
+        : isSet(object.agency_id)
+        ? globalThis.String(object.agency_id)
+        : "",
+      agencyName: isSet(object.agencyName)
+        ? globalThis.String(object.agencyName)
+        : isSet(object.agency_name)
+        ? globalThis.String(object.agency_name)
+        : "",
     };
   },
 
@@ -404,6 +441,12 @@ export const VehicleEntity: MessageFns<VehicleEntity> = {
     if (message.tripHeadsign !== "") {
       obj.tripHeadsign = message.tripHeadsign;
     }
+    if (message.agencyId !== "") {
+      obj.agencyId = message.agencyId;
+    }
+    if (message.agencyName !== "") {
+      obj.agencyName = message.agencyName;
+    }
     return obj;
   },
 
@@ -423,6 +466,8 @@ export const VehicleEntity: MessageFns<VehicleEntity> = {
     message.vehicleId = object.vehicleId ?? "";
     message.routeShortName = object.routeShortName ?? "";
     message.tripHeadsign = object.tripHeadsign ?? "";
+    message.agencyId = object.agencyId ?? "";
+    message.agencyName = object.agencyName ?? "";
     return message;
   },
 };

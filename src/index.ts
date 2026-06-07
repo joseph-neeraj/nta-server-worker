@@ -14,7 +14,7 @@ const app = new Hono<{ Bindings: Env }>();
 // CF-Connecting-IP is the real client IP as seen by Cloudflare.
 app.use("/init", (c, next) =>
 	rateLimiter<{ Bindings: Env }>({
-		windowMs: 60 * 60 * 1000,  // 1 hour window
+		windowMs: 60 * 60 * 1000,  // 1 hour window (well above KV's 60s minimum expiration requirement)
 		limit: 120,                 // 120 token requests per IP per hour
 		keyGenerator: (c) => c.req.header("CF-Connecting-IP") ?? "unknown",
 		store: new WorkersKVStore({ namespace: c.env.RATE_LIMIT_KV, prefix: "rl:ip:" }),
@@ -31,8 +31,9 @@ app.use("/v1/*", (c, next) => jwt({ secret: c.env.JWT_SECRET, alg: "HS256" })(c,
 // WorkersKVStore is instantiated per-request so it can access c.env.RATE_LIMIT_KV.
 app.use("/v1/*", (c, next) =>
 	rateLimiter<{ Bindings: Env }>({
-		windowMs: 60 * 1000,   // 1 minute window
-		limit: 120,            // 120 requests per token per minute
+		windowMs: 5 * 60 * 1000,   // 5 minute window — NOTE: Cloudflare KV requires expiration ≥ 60s in future,
+		                            // so windowMs must be meaningfully above 60s or KV PUT will return 400.
+		limit: 600,                 // 600 requests per token per 5 minutes (= 120/min proportionate)
 		// jwtPayload is set by the jwt() middleware above after token verification
 		keyGenerator: (c) => (c.get("jwtPayload") as { jti: string }).jti,
 		store: new WorkersKVStore({ namespace: c.env.RATE_LIMIT_KV, prefix: "rl:tok:" }),

@@ -11,7 +11,7 @@
 syntax = "proto3";
 package nta;
 
-// ─── /vehicles ───────────────────────────────────────────────────────────────
+// ─── /v1/live/vehicles ─────────────────────────────────────────────────────
 
 // Feed of all currently active vehicles, enriched with human-readable labels.
 message VehiclesFeed {
@@ -37,10 +37,10 @@ message VehicleEntity {
   string trip_headsign    = 11; // e.g. "Edenderry Town Hall" — destination on the bus
 }
 
-// ─── /vehicle-details ────────────────────────────────────────────────────────
+// ─── /v1/live/trips/{trip_id} ───────────────────────────────────────────────
 
 // Full details for a single trip: static GTFS info + real-time stop delays.
-// Returned by GET /vehicle-details?trip_id=<trip_id>.
+// Returned by GET /v1/live/trips/{trip_id}.
 message TripDetails {
   string trip_id          = 1;
   string trip_headsign    = 2;

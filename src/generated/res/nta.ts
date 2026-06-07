@@ -43,7 +43,7 @@ export interface VehicleEntity {
 
 /**
  * Full details for a single trip: static GTFS info + real-time stop delays.
- * Returned by GET /vehicle-details?trip_id=<trip_id>.
+ * Returned by GET /v1/live/trips/{trip_id}.
  */
 export interface TripDetails {
   tripId: string;

@@ -1,4 +1,4 @@
-// Handler for GET /vehicles
+// Handler for GET /v1/live/vehicles
 //
 // Returns an enriched vehicle feed: all active vehicles with their real-time
 // positions plus route_short_name and trip_headsign from the static GTFS data.
@@ -21,7 +21,7 @@ export async function handleVehicles(request: Request, env: Env, ctx: ExecutionC
 	// Always cache proto bytes — one cache entry regardless of the requested format.
 	// JSON is cheap to derive on the fly from the decoded proto.
 	const cache = caches.default;
-	const cacheKey = new Request("https://nta-worker-cache/vehicles/enriched", { method: "GET" });
+	const cacheKey = new Request("https://nta-worker-cache/v1/live/vehicles/enriched", { method: "GET" });
 	const cachedProto = await cache.match(cacheKey);
 
 	// Proto cache hit — return directly without any decode/re-encode work

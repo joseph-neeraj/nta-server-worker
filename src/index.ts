@@ -33,6 +33,7 @@ app.use("/v1/*", (c, next) =>
 	rateLimiter<{ Bindings: Env }>({
 		windowMs: 60 * 1000,   // 1 minute window
 		limit: 120,            // 120 requests per token per minute
+		// jwtPayload is set by the jwt() middleware above after token verification
 		keyGenerator: (c) => (c.get("jwtPayload") as { jti: string }).jti,
 		store: new WorkersKVStore({ namespace: c.env.RATE_LIMIT_KV, prefix: "rl:tok:" }),
 	})(c, next)

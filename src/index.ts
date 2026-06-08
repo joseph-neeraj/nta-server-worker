@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { jwt } from "hono/jwt";
 import { rateLimiter } from "hono-rate-limiter";
-import { handleVehicles } from "./vehicles";
-import { handleVehicleDetails } from "./vehicle-details";
-import { handleInit } from "./init";
-import { SafeKVStore } from "./kv-rate-limit-store";
+import { handleVehicles } from "./handlers/vehicles";
+import { handleTripFetch } from "./handlers/trip";
+import { handleInit } from "./handlers/init";
+import { SafeKVStore } from "./lib/kv-rate-limit-store";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -41,6 +41,6 @@ app.use("/v1/*", (c, next) =>
 );
 
 app.get("/v1/live/vehicles", (c) => handleVehicles(c.req.raw, c.env, c.executionCtx as ExecutionContext));
-app.get("/v1/live/trips/:trip_id", (c) => handleVehicleDetails(c.req.raw, c.env, c.executionCtx as ExecutionContext));
+app.get("/v1/live/trips/:trip_id", (c) => handleTripFetch(c.req.raw, c.env, c.executionCtx as ExecutionContext));
 
 export default app;

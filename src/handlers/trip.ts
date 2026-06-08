@@ -29,10 +29,10 @@
 //   ]
 // }
 
-import { NtaClient, CACHE_TTL } from "./nta-client";
-import { TripDetails } from "./generated/res/nta";
+import { NtaClient, CACHE_TTL } from "../lib/nta-client";
+import { TripDetails } from "../generated/res/nta";
 
-export async function handleVehicleDetails(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+export async function handleTripFetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 	if (request.method !== "GET") {
 		return new Response(JSON.stringify({ error: "Method Not Allowed" }), {
 			status: 405,

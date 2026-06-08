@@ -5,8 +5,8 @@
 // The enriched response is cached on the CF edge for 65 seconds (matching the
 // NTA feed cadence), so the D1 join only runs on cache misses.
 
-import { NtaClient, CACHE_TTL } from "./nta-client";
-import { VehiclesFeed } from "./generated/res/nta";
+import { NtaClient, CACHE_TTL } from "../lib/nta-client";
+import { VehiclesFeed } from "../generated/res/nta";
 
 type TripRow = { trip_id: string; trip_headsign: string | null; route_short_name: string | null; agency_id: string | null; agency_name: string | null };
 

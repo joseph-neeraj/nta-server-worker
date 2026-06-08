@@ -12,7 +12,7 @@
 // With CACHE_TTL=65s each endpoint is called at most once per 65 seconds,
 // so neither key ever approaches its rate limit.
 
-import { FeedMessage } from "./generated/res/gtfs-realtime";
+import { FeedMessage } from "../generated/res/gtfs-realtime";
 
 const NTA_BASE = "https://api.nationaltransport.ie/gtfsr/v2";
 

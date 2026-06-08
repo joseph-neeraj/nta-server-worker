@@ -7,6 +7,7 @@
 
 import { NtaClient, CACHE_TTL } from "../lib/nta-client";
 import { VehiclesFeed } from "../generated/res/nta";
+import { gzip, gunzip } from "../lib/compress";
 
 type TripRow = { trip_id: string; trip_headsign: string | null; route_short_name: string | null; agency_id: string | null; agency_name: string | null };
 
@@ -28,10 +29,12 @@ export async function handleVehicles(request: Request, env: Env, ctx: ExecutionC
 	if (cachedProto && accept !== "application/json") return cachedProto;
 
 	let enriched: VehiclesFeed;
+	let compressedProto: Uint8Array | undefined;
 
 	if (cachedProto) {
-		// JSON was requested but proto is already cached — decode and convert
-		enriched = VehiclesFeed.decode(new Uint8Array(await cachedProto.arrayBuffer()));
+		// JSON requested — decompress cached bytes, then decode
+		const rawBytes = await gunzip(new Uint8Array(await cachedProto.arrayBuffer()));
+		enriched = VehiclesFeed.decode(rawBytes);
 	} else {
 		// Cache miss — fetch from NTA and enrich with D1 static data
 		const feed = await new NtaClient(env, ctx).fetchVehicles();
@@ -93,13 +96,18 @@ export async function handleVehicles(request: Request, env: Env, ctx: ExecutionC
 				}),
 		};
 
-		// Store proto bytes in the cache for subsequent requests
+		// Encode, compress, log sizes, then cache the compressed bytes
+		const rawBytes = VehiclesFeed.encode(enriched).finish();
+		console.log(`[vehicles] proto raw=${rawBytes.length}B`);
+		compressedProto = await gzip(rawBytes);
+		console.log(`[vehicles] proto gzip=${compressedProto.length}B (${Math.round((1 - compressedProto.length / rawBytes.length) * 100)}% reduction)`);
 		ctx.waitUntil(
 			cache.put(
 				cacheKey,
-				new Response(VehiclesFeed.encode(enriched).finish(), {
+				new Response(compressedProto, {
 					headers: {
 						"Content-Type": "application/x-protobuf",
+						"Content-Encoding": "gzip",
 						"Cache-Control": `public, max-age=${CACHE_TTL}`,
 					},
 				}),
@@ -113,8 +121,10 @@ export async function handleVehicles(request: Request, env: Env, ctx: ExecutionC
 		});
 	}
 
-	return new Response(VehiclesFeed.encode(enriched).finish(), {
-		headers: { "Content-Type": "application/x-protobuf", "Cache-Control": `public, max-age=${CACHE_TTL}` },
+	// compressedProto is always set on the cache-miss path; the fallback guards against type errors only
+	const bytes = compressedProto ?? await gzip(VehiclesFeed.encode(enriched).finish());
+	return new Response(bytes, {
+		headers: { "Content-Type": "application/x-protobuf", "Content-Encoding": "gzip", "Cache-Control": `public, max-age=${CACHE_TTL}` },
 	});
 }
 

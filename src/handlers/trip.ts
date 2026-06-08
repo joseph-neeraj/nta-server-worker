@@ -31,6 +31,7 @@
 
 import { NtaClient, CACHE_TTL } from "../lib/nta-client";
 import { TripDetails } from "../generated/res/nta";
+import { gzip, gunzip } from "../lib/compress";
 
 export async function handleTripFetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 	if (request.method !== "GET") {
@@ -65,10 +66,12 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 	if (cachedProto && accept !== "application/json") return cachedProto;
 
 	let details: TripDetails;
+	let compressedProto: Uint8Array | undefined;
 
 	if (cachedProto) {
-		// JSON requested but proto already cached — decode and convert
-		details = TripDetails.decode(new Uint8Array(await cachedProto.arrayBuffer()));
+		// JSON requested — decompress cached bytes, then decode
+		const rawBytes = await gunzip(new Uint8Array(await cachedProto.arrayBuffer()));
+		details = TripDetails.decode(rawBytes);
 	} else {
 		// Cache miss — fetch from D1 and NTA in parallel
 		const [dbResult, delayUpdates] = await Promise.all([
@@ -137,12 +140,18 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 			})),
 		};
 
+		// Encode, compress, log sizes, then cache the compressed bytes
+		const rawBytes = TripDetails.encode(details).finish();
+		console.log(`[trip:${trip_id}] proto raw=${rawBytes.length}B`);
+		compressedProto = await gzip(rawBytes);
+		console.log(`[trip:${trip_id}] proto gzip=${compressedProto.length}B (${Math.round((1 - compressedProto.length / rawBytes.length) * 100)}% reduction)`);
 		ctx.waitUntil(
 			cache.put(
 				cacheKey,
-				new Response(TripDetails.encode(details).finish(), {
+				new Response(compressedProto, {
 					headers: {
 						"Content-Type": "application/x-protobuf",
+						"Content-Encoding": "gzip",
 						"Cache-Control": `public, max-age=${CACHE_TTL}`,
 					},
 				}),
@@ -156,8 +165,10 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 		});
 	}
 
-	return new Response(TripDetails.encode(details).finish(), {
-		headers: { "Content-Type": "application/x-protobuf", "Cache-Control": `public, max-age=${CACHE_TTL}` },
+	// compressedProto is always set on the cache-miss path; the fallback guards against type errors only
+	const bytes = compressedProto ?? await gzip(TripDetails.encode(details).finish());
+	return new Response(bytes, {
+		headers: { "Content-Type": "application/x-protobuf", "Content-Encoding": "gzip", "Cache-Control": `public, max-age=${CACHE_TTL}` },
 	});
 }
 

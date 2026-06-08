@@ -30,7 +30,36 @@
 			"id": "6de5bc8565ec4c5eb008fdbb1db3d902",
 			"remote": true
 		}
-	]
+	],
+	"env": {
+		/**
+		 * Staging environment — deploys as nta-server-worker-staging.<subdomain>.workers.dev
+		 * Deploy:  npx wrangler deploy --env staging
+		 * Dev:     npx wrangler dev --env staging
+		 * Secrets: npx wrangler secret put <KEY> --env staging  (repeat for each secret)
+		 * Bindings are non-inheritable and must be listed explicitly.
+		 */
+		"staging": {
+			"workers_dev": true,
+			"vars": {
+				"ENABLE_JSON": "true"
+			},
+			"d1_databases": [
+				{
+					"binding": "nta_static",
+					"database_name": "nta-static",
+					"database_id": "7c79495c-5b29-4b31-a760-209eee1c1f95"
+				}
+			],
+			"kv_namespaces": [
+				{
+					"binding": "RATE_LIMIT_KV",
+					"id": "6de5bc8565ec4c5eb008fdbb1db3d902",
+					"remote": true
+				}
+			]
+		}
+	}
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

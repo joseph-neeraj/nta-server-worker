@@ -12,9 +12,6 @@ lerna-debug.log*
 scripts/gtfs/test/old.zip
 scripts/gtfs/test/new.zip
 
-# Extracted GTFS directories (from old runs before artifacts/ dir existed)
-gtfs_*/
-
 # GTFS import artefacts — kept in scripts/gtfs/artifacts/, not committed
 scripts/gtfs/artifacts/gtfs_*.sql
 scripts/gtfs/artifacts/gtfs_*.zip

@@ -11,7 +11,7 @@
 // BEGIN/COMMIT are forbidden by D1 and must NOT appear in the SQL.
 
 import AdmZip from 'adm-zip';
-import { createWriteStream, writeFileSync, readFileSync, existsSync } from 'fs';
+import { createWriteStream, writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { promisify } from 'util';
 import { createHash } from 'crypto';
 import chalk from 'chalk';
@@ -19,14 +19,18 @@ import ora from 'ora';
 
 const GTFS_URL = 'https://www.transportforireland.ie/transitData/Data/GTFS_Realtime.zip';
 
+// All generated files and tracking markers go here, keeping the project root clean.
+const ARTIFACTS_DIR = 'scripts/gtfs/artifacts';
+mkdirSync(ARTIFACTS_DIR, { recursive: true });
+
 const TS = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-const ZIP_FILE = `gtfs_${TS}.zip`;
-const OUT_FILE = `gtfs_${TS}.sql`;
+const ZIP_FILE = `${ARTIFACTS_DIR}/gtfs_${TS}.zip`;
+const OUT_FILE = `${ARTIFACTS_DIR}/gtfs_${TS}.sql`;
 
 // Tracking files — shell script uses these to coordinate state between runs
-const STATS_FILE = '.gtfs_stats.json';        // per-table diff counts for confirmation prompt
-const PENDING_ZIP_FILE = '.gtfs_pending_zip'; // path of just-downloaded zip (not yet committed)
-const LAST_ZIP_FILE = '.gtfs_last_zip';       // path of last successfully imported zip
+const STATS_FILE = `${ARTIFACTS_DIR}/.gtfs_stats.json`;        // per-table diff counts for confirmation prompt
+const PENDING_ZIP_FILE = `${ARTIFACTS_DIR}/.gtfs_pending_zip`; // path of just-downloaded zip (not yet committed)
+const LAST_ZIP_FILE = `${ARTIFACTS_DIR}/.gtfs_last_zip`;       // path of last successfully imported zip
 
 console.log(chalk.dim(`  zip: ${ZIP_FILE}`));
 console.log(chalk.dim(`  sql: ${OUT_FILE}`));
@@ -504,7 +508,7 @@ writeFileSync(STATS_FILE, JSON.stringify({
   totalDeleteStatements: deleteStatements,
 }, null, 2));
 
-writeFileSync('.gtfs_last_sql', OUT_FILE);
+writeFileSync(`${ARTIFACTS_DIR}/.gtfs_last_sql`, OUT_FILE);
 
 const { size } = (await import('fs')).statSync(OUT_FILE);
 console.log(chalk.green(`\n✔ Wrote ${chalk.bold(OUT_FILE)} (${(size / 1024 / 1024).toFixed(1)} MB)`));

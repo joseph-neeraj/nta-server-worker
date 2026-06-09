@@ -37,21 +37,21 @@ fi
 echo ""
 read -r -p "Proceed with import? [y/N] " PROCEED
 if [[ "$PROCEED" != "y" && "$PROCEED" != "Y" ]]; then
-  echo -e "${DIM}Aborted. SQL file kept at: $(cat .gtfs_last_sql)${RESET}"
+  echo -e "${DIM}Aborted. SQL file kept at: $(cat scripts/gtfs/artifacts/.gtfs_last_sql)${RESET}"
   exit 0
 fi
 
 echo -e "\n${YELLOW}▶ Step 2: Execute SQL against D1${RESET}"
-SQL_FILE=$(cat .gtfs_last_sql)
+SQL_FILE=$(cat scripts/gtfs/artifacts/.gtfs_last_sql)
 REMOTE_FLAG="" # set to --remote only if user confirmed above
 [[ "$PUBLISH_REMOTE" == "y" || "$PUBLISH_REMOTE" == "Y" ]] && REMOTE_FLAG="--remote"
 npx wrangler d1 execute nta-static $REMOTE_FLAG --file="$SQL_FILE"
 
 # Promote the just-imported zip as the new baseline for future diffs.
 # This only runs after a successful wrangler execute (set -e ensures that).
-if [[ -f .gtfs_pending_zip ]]; then
-  cp .gtfs_pending_zip .gtfs_last_zip
-  echo -e "${DIM}  Baseline updated → $(cat .gtfs_last_zip)${RESET}"
+if [[ -f scripts/gtfs/artifacts/.gtfs_pending_zip ]]; then
+  cp scripts/gtfs/artifacts/.gtfs_pending_zip scripts/gtfs/artifacts/.gtfs_last_zip
+  echo -e "${DIM}  Baseline updated → $(cat scripts/gtfs/artifacts/.gtfs_last_zip)${RESET}"
 fi
 
 echo -e "\n${GREEN}${BOLD}✔ Done${RESET}"

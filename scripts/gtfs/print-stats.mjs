@@ -6,7 +6,7 @@
 import { readFileSync } from 'fs';
 import chalk from 'chalk';
 
-const s = JSON.parse(readFileSync('.gtfs_stats.json', 'utf8'));
+const s = JSON.parse(readFileSync('scripts/gtfs/artifacts/.gtfs_stats.json', 'utf8'));
 
 if (s.noChange) {
   // nothing to print — caller handles the "unchanged" message

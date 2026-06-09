@@ -8,10 +8,16 @@ yarn-error.log*
 lerna-debug.log*
 .pnpm-debug.log*
 
-# GTFS import artefacts (large generated files, kept locally for inspection)
+# GTFS import artefacts — kept in scripts/gtfs/artifacts/, not committed
+scripts/gtfs/artifacts/gtfs_*.sql
+scripts/gtfs/artifacts/gtfs_*.zip
+scripts/gtfs/artifacts/.gtfs_last_sql
+scripts/gtfs/artifacts/.gtfs_last_zip
+scripts/gtfs/artifacts/.gtfs_pending_zip
+scripts/gtfs/artifacts/.gtfs_stats.json
+# Legacy root-level artefacts (from before artifacts/ dir existed)
 gtfs_*.sql
 gtfs_*.zip
-.gtfs_last_sql
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 

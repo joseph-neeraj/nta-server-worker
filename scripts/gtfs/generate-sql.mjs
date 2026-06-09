@@ -13,6 +13,7 @@
 import AdmZip from 'adm-zip';
 import { createWriteStream, writeFileSync, readFileSync, existsSync } from 'fs';
 import { promisify } from 'util';
+import { createHash } from 'crypto';
 import chalk from 'chalk';
 import ora from 'ora';
 
@@ -219,7 +220,11 @@ function writeDeletes(stream, table, pks, rows) {
 // Delete from the Map as each new-row key is seen — whatever remains after the
 // loop are deleted rows. Peak memory ≈ oldIndex (~1-2 GB for stop_times) plus
 // the raw new CSV text string. No full new-rows array is ever materialised.
-function computeDiff(oldRows, newText, pks, columns) {
+//
+// transformRow: optional fn(row) → row applied to each new row before comparison.
+// Used by trips to normalise shape_id through the shape rename map so trips that
+// only changed because their shape was renamed don't appear as updates.
+function computeDiff(oldRows, newText, pks, columns, transformRow = null) {
   const makeKey = row => pks.map(pk => row[pk]).join('\0');
   const makeVal = row => columns.map(c => row[c]).join('\0');
 
@@ -230,11 +235,12 @@ function computeDiff(oldRows, newText, pks, columns) {
   const toUpsert = [];
 
   for (const row of streamCSV(newText)) {
-    const key = makeKey(row);
+    const effectiveRow = transformRow ? transformRow(row) : row;
+    const key = makeKey(effectiveRow);
     const oldVal = oldIndex.get(key);
     oldIndex.delete(key); // mark seen; entries remaining after full scan = deleted
-    if (oldVal === undefined || oldVal !== makeVal(row)) {
-      toUpsert.push(row);
+    if (oldVal === undefined || oldVal !== makeVal(effectiveRow)) {
+      toUpsert.push(effectiveRow);
     }
   }
 
@@ -245,6 +251,97 @@ function computeDiff(oldRows, newText, pks, columns) {
     const row = {};
     pks.forEach((pk, i) => { row[pk] = pkVals[i]; });
     toDelete.push(row);
+  }
+
+  return { toUpsert, toDelete };
+}
+
+// ── Shape geometry fingerprinting ─────────────────────────────────
+// NTA renames shape_ids daily without changing GPS points. These functions
+// detect geometry-identical renames so the ~882K wasteful row writes they
+// would otherwise cause are skipped.
+
+// Reads shapes.txt from a zip and returns:
+//   idToHash: Map<shape_id, geoHash>  (fingerprint of sorted lat/lon sequence)
+//   hashToId: Map<geoHash, shape_id>  (reverse lookup)
+// Hash covers lat/lon only — shape_dist_traveled is excluded so minor
+// distance recalculations don't trigger false "new geometry" classifications.
+function buildGeoHashIndex(zip) {
+  const entry = zip.getEntry('shapes.txt');
+  if (!entry) return { idToHash: new Map(), hashToId: new Map() };
+
+  const byId = new Map(); // shape_id → [{ seq, lat, lon }]
+  for (const row of streamCSV(entry.getData().toString('utf8'))) {
+    if (!byId.has(row.shape_id)) byId.set(row.shape_id, []);
+    byId.get(row.shape_id).push({
+      seq: parseInt(row.shape_pt_sequence, 10),
+      lat: row.shape_pt_lat,
+      lon: row.shape_pt_lon,
+    });
+  }
+
+  const idToHash = new Map();
+  const hashToId = new Map();
+  for (const [shapeId, pts] of byId) {
+    pts.sort((a, b) => a.seq - b.seq);
+    const payload = pts.map(p => `${p.lat},${p.lon}`).join('|');
+    const hash = createHash('sha256').update(payload).digest('hex').slice(0, 16);
+    idToHash.set(shapeId, hash);
+    hashToId.set(hash, shapeId);
+  }
+  byId.clear();
+  return { idToHash, hashToId };
+}
+
+// Returns Map<newShapeId, oldShapeId> for shapes whose shape_id changed between
+// feeds but whose geometry (lat/lon sequence) is identical.
+//
+// Only maps newId → oldId when oldId is absent from the new feed. If oldId still
+// exists in the new feed under the same name, that shape must be compared normally
+// rather than excluded from the oldIndex.
+function buildRenameMap(oldIndex, newIndex) {
+  const renameMap = new Map();
+  for (const [newId, newHash] of newIndex.idToHash) {
+    if (oldIndex.idToHash.has(newId)) continue; // same ID in old feed — not a rename
+    const oldId = oldIndex.hashToId.get(newHash);
+    if (oldId && !newIndex.idToHash.has(oldId)) {
+      // oldId is gone from new feed — its geometry now lives under newId
+      renameMap.set(newId, oldId);
+    }
+  }
+  return renameMap;
+}
+
+// Shape-specific diff that skips geometry-identical renames.
+//   toUpsert: only shapes with genuinely new/changed geometry
+//   toDelete: only shapes whose geometry no longer appears anywhere in the new feed
+function computeShapeDiff(oldRows, newText, columns, renameMap) {
+  const makeKey = row => `${row.shape_id}\0${row.shape_pt_sequence}`;
+  const makeVal = row => columns.map(c => row[c]).join('\0');
+
+  // Old shape_ids that are being "kept": their geometry still exists in the new
+  // feed under a new name, so their D1 rows must not be deleted.
+  const keptOldIds = new Set(renameMap.values());
+
+  const oldIndex = new Map();
+  for (const row of oldRows) {
+    if (!keptOldIds.has(row.shape_id)) oldIndex.set(makeKey(row), makeVal(row));
+  }
+  oldRows.length = 0;
+
+  const toUpsert = [];
+  for (const row of streamCSV(newText)) {
+    if (renameMap.has(row.shape_id)) continue; // geometry already in D1 under old name
+    const key = makeKey(row);
+    const oldVal = oldIndex.get(key);
+    oldIndex.delete(key);
+    if (oldVal === undefined || oldVal !== makeVal(row)) toUpsert.push(row);
+  }
+
+  const toDelete = [];
+  for (const [key] of oldIndex) {
+    const [shape_id, shape_pt_sequence] = key.split('\0');
+    toDelete.push({ shape_id, shape_pt_sequence });
   }
 
   return { toUpsert, toDelete };
@@ -296,7 +393,7 @@ if (lastZipPath && existsSync(lastZipPath)) {
   }
 
   mode = 'diff';
-  console.log(chalk.dim(`\n  Mode: diff  (${oldVersion} → ${newVersion})`));
+  console.log(chalk.cyan(`\n  Feed version changed: ${chalk.bold(oldVersion)} → ${chalk.bold(newVersion)} — proceeding with diff`));
 } else {
   console.log(chalk.dim(`\n  Mode: full import (no previous zip found)`));
 }
@@ -339,6 +436,18 @@ if (mode === 'full') {
 
 } else {
   // Diff mode — patch live tables. Only changed/added/deleted rows are written.
+
+  // Build shape geometry fingerprints before the table loop.
+  // shapeRenameMap: Map<newShapeId, oldShapeId> for geometry-identical renames.
+  // Used by both the shapes diff (to skip re-writing unchanged geometry) and
+  // the trips diff (to normalise shape_id so trips don't look changed).
+  const oldShapeIndex = buildGeoHashIndex(oldZip);
+  const newShapeIndex = buildGeoHashIndex(newZip);
+  const shapeRenameMap = buildRenameMap(oldShapeIndex, newShapeIndex);
+  if (shapeRenameMap.size > 0) {
+    console.log(chalk.dim(`  Shape renames detected: ${shapeRenameMap.size} (geometry-identical, writes skipped)`));
+  }
+
   for (const { table, file, columns, pks } of TABLES) {
     const spinner = ora({ text: chalk.cyan(`  ${table} ...`), color: 'cyan', indent: 2 }).start();
 
@@ -347,7 +456,20 @@ if (mode === 'full') {
     const oldRows = oldEntry ? parseCSV(oldEntry.getData().toString('utf8')) : [];
     const newText = newEntry ? newEntry.getData().toString('utf8') : '';
 
-    const { toUpsert, toDelete } = computeDiff(oldRows, newText, pks, columns);
+    let toUpsert, toDelete;
+    if (table === 'shapes') {
+      // Skip rows for geometry-identical renames; keep their old D1 rows intact.
+      ({ toUpsert, toDelete } = computeShapeDiff(oldRows, newText, columns, shapeRenameMap));
+    } else if (table === 'trips') {
+      // Normalise shape_id through rename map before comparison: a trip that only
+      // changed because NTA renamed its shape will now match the old D1 row.
+      ({ toUpsert, toDelete } = computeDiff(oldRows, newText, pks, columns,
+        row => shapeRenameMap.has(row.shape_id)
+          ? { ...row, shape_id: shapeRenameMap.get(row.shape_id) }
+          : row));
+    } else {
+      ({ toUpsert, toDelete } = computeDiff(oldRows, newText, pks, columns));
+    }
 
     if (toUpsert.length > 0 || toDelete.length > 0) {
       stream.write(`-- ${table}: ${toUpsert.length} upserts, ${toDelete.length} deletes\n`);
@@ -356,8 +478,12 @@ if (mode === 'full') {
       stream.write('\n');
     }
 
-    tableStats.push({ table, upsertRows: toUpsert.length, deleteRows: toDelete.length });
-    spinner.succeed(chalk.green(`  ${chalk.bold(table)}: ${toUpsert.length.toLocaleString()} upserts, ${toDelete.length.toLocaleString()} deletes`));
+    const renameNote = table === 'shapes' && shapeRenameMap.size > 0
+      ? chalk.dim(` (${shapeRenameMap.size} renames skipped)`)
+      : '';
+    tableStats.push({ table, upsertRows: toUpsert.length, deleteRows: toDelete.length,
+      ...(table === 'shapes' ? { renamedShapes: shapeRenameMap.size } : {}) });
+    spinner.succeed(chalk.green(`  ${chalk.bold(table)}: ${toUpsert.length.toLocaleString()} upserts, ${toDelete.length.toLocaleString()} deletes${renameNote}`));
   }
 }
 

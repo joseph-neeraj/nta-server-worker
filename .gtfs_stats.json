@@ -1,9 +1,9 @@
 {
   "noChange": false,
   "mode": "diff",
-  "oldVersion": "0E8CF856-0FA7-4FC6-B420-2423A092BC69",
-  "newVersion": "2C794B98-E8DF-4FF1-83F4-1AB3ECDA68C8",
-  "sqlFile": "gtfs_2026-06-08T16-38-00.sql",
+  "oldVersion": "2C794B98-E8DF-4FF1-83F4-1AB3ECDA68C8",
+  "newVersion": "89A68EDF-3AC8-4201-97C6-5D7175FA4041",
+  "sqlFile": "gtfs_2026-06-09T10-04-50.sql",
   "tables": [
     {
       "table": "agency",
@@ -17,18 +17,18 @@
     },
     {
       "table": "calendar",
-      "upsertRows": 119,
-      "deleteRows": 13
+      "upsertRows": 138,
+      "deleteRows": 48
     },
     {
       "table": "calendar_dates",
-      "upsertRows": 150,
-      "deleteRows": 154
+      "upsertRows": 192,
+      "deleteRows": 184
     },
     {
       "table": "shapes",
-      "upsertRows": 0,
-      "deleteRows": 878
+      "upsertRows": 512294,
+      "deleteRows": 370415
     },
     {
       "table": "stops",
@@ -37,15 +37,15 @@
     },
     {
       "table": "trips",
-      "upsertRows": 240276,
-      "deleteRows": 10
+      "upsertRows": 227633,
+      "deleteRows": 10625
     },
     {
       "table": "stop_times",
-      "upsertRows": 118,
-      "deleteRows": 220
+      "upsertRows": 33323,
+      "deleteRows": 383923
     }
   ],
-  "totalUpsertStatements": 484,
-  "totalDeleteStatements": 6
+  "totalUpsertStatements": 1550,
+  "totalDeleteStatements": 1533
 }

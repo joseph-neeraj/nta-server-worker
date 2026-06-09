@@ -206,7 +206,7 @@ Run the publish script — it handles download, SQL generation, diff detection, 
 bash scripts/gtfs/publish.sh
 ```
 
-See the [Scripts section](#scripts) for a full breakdown of how it works.
+See the [Scripts section](#scripts) for a full breakdown of how it works, and [scripts/gtfs/explanation.md](scripts/gtfs/explanation.md) for a detailed explanation of the diff algorithm and the shape-rename optimisation.
 
 ---
 

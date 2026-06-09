@@ -26,7 +26,7 @@ This is the main script. It:
 2. Compares it against the last ZIP that was successfully imported
 3. Generates a SQL file containing only the changes (inserts, updates, deletes)
 
-### `publish.sh`
+### `publish_diff.sh`
 
 This is the shell script you actually run. It calls `generate-sql.mjs`, shows you a summary of what changed, asks for confirmation, then executes the SQL against the D1 database.
 
@@ -118,13 +118,18 @@ Cloudflare D1 charges per row written. On the paid Workers plan, the first 50 mi
 
 ---
 
-## Running the test
+## Running the tests
 
 ```bash
 bash scripts/gtfs/test/run.sh
 ```
 
-This uses the sample feeds in `scripts/gtfs/test/old.zip` and `scripts/gtfs/test/new.zip`. You can pass your own zips:
+This runs two things in sequence:
+
+1. **Unit tests** (`test-unit.mjs`) — 75 fast tests covering every pure function in `lib.mjs`: CSV parsing, SQL generation, diff logic, shape fingerprinting, and rename detection. No zips or network needed.
+2. **Integration test** (`test-optimization.mjs`) — runs both the old (unoptimised) and new (optimised) diff against two real NTA feeds and shows the savings comparison.
+
+You can pass your own zips for the integration test:
 
 ```bash
 bash scripts/gtfs/test/run.sh path/to/old.zip path/to/new.zip
@@ -137,12 +142,16 @@ bash scripts/gtfs/test/run.sh path/to/old.zip path/to/new.zip
 | File | Purpose |
 |---|---|
 | `scripts/gtfs/generate-sql.mjs` | Downloads GTFS, diffs against last import, writes SQL |
-| `scripts/gtfs/publish.sh` | End-to-end script: generate → confirm → import to D1 |
+| `scripts/gtfs/lib.mjs` | Pure functions (CSV parsing, SQL helpers, diff logic, shape fingerprinting) — imported by both `generate-sql.mjs` and the unit tests |
+| `scripts/gtfs/publish_diff.sh` | End-to-end script: generate → confirm → import to D1 |
 | `scripts/gtfs/print-stats.mjs` | Prints the per-table diff summary used in the confirmation prompt |
-| `scripts/gtfs/test/test-optimization.mjs` | Tests the shape-rename optimisation against sample zips |
-| `scripts/gtfs/test/run.sh` | Shell wrapper to run the test |
-| `scripts/gtfs/test/old.zip` | Sample GTFS feed (6 Jun 2026) — baseline for the test |
-| `scripts/gtfs/test/new.zip` | Sample GTFS feed (9 Jun 2026) — updated feed for the test |
-| `.gtfs_last_zip` | Path of the last successfully imported ZIP (diff baseline) |
-| `.gtfs_pending_zip` | Path of the just-downloaded ZIP (not yet committed) |
-| `.gtfs_stats.json` | Per-table row counts used by the confirmation prompt |
+| `scripts/gtfs/test/test-unit.mjs` | 75 unit tests covering every pure function in `lib.mjs` |
+| `scripts/gtfs/test/test-optimization.mjs` | Integration test: runs optimised vs unoptimised diff and shows savings |
+| `scripts/gtfs/test/run.sh` | Runs both test suites |
+| `scripts/gtfs/test/old.zip` | Sample GTFS feed (6 Jun 2026) — baseline for the integration test |
+| `scripts/gtfs/test/new.zip` | Sample GTFS feed (9 Jun 2026) — updated feed for the integration test |
+| `scripts/gtfs/artifacts/.gtfs_last_zip` | Path of the last successfully imported ZIP (diff baseline) |
+| `scripts/gtfs/artifacts/.gtfs_pending_zip` | Path of the just-downloaded ZIP (not yet committed) |
+| `scripts/gtfs/artifacts/.gtfs_stats.json` | Per-table row counts used by the confirmation prompt |
+| `scripts/gtfs/artifacts/gtfs_<timestamp>.zip` | Downloaded ZIP for the current run |
+| `scripts/gtfs/artifacts/gtfs_<timestamp>.sql` | Generated SQL for the current run |

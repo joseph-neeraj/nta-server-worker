@@ -22,6 +22,9 @@ const NTA_BASE = "https://api.nationaltransport.ie/gtfsr/v2";
  */
 export const CACHE_TTL = 61;
 
+/** Hard timeout for NTA subrequests — avoids hanging indefinitely on a slow upstream. */
+const FETCH_TIMEOUT_MS = 10_000;
+
 export class NtaClient {
 	constructor(private env: Env, private ctx: ExecutionContext) {}
 
@@ -48,6 +51,7 @@ export class NtaClient {
 
 		const res = await fetch(url, {
 			headers: { "x-api-key": apiKey },
+			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
 		});
 		if (!res.ok) return null;
 

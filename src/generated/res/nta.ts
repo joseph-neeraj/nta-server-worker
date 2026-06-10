@@ -9,6 +9,15 @@ import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
 
 export const protobufPackage = "nta";
 
+/** Returned on any error response, regardless of endpoint. */
+export interface ErrorResponse {
+  /** mirrors the HTTP status code */
+  code: number;
+  description: string;
+  /** human-friendly message safe to display in a UI */
+  endUserFeedback: string;
+}
+
 /** Feed of all currently active vehicles, enriched with human-readable labels. */
 export interface VehiclesFeed {
   /** POSIX seconds, from the upstream GTFS-RT header */
@@ -97,6 +106,102 @@ export interface TripStop {
   arrivalDelay?: number | undefined;
   departureDelay?: number | undefined;
 }
+
+function createBaseErrorResponse(): ErrorResponse {
+  return { code: 0, description: "", endUserFeedback: "" };
+}
+
+export const ErrorResponse: MessageFns<ErrorResponse> = {
+  encode(message: ErrorResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.code !== 0) {
+      writer.uint32(8).uint32(message.code);
+    }
+    if (message.description !== "") {
+      writer.uint32(18).string(message.description);
+    }
+    if (message.endUserFeedback !== "") {
+      writer.uint32(26).string(message.endUserFeedback);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ErrorResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseErrorResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.code = reader.uint32();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.description = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.endUserFeedback = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ErrorResponse {
+    return {
+      code: isSet(object.code) ? globalThis.Number(object.code) : 0,
+      description: isSet(object.description) ? globalThis.String(object.description) : "",
+      endUserFeedback: isSet(object.endUserFeedback)
+        ? globalThis.String(object.endUserFeedback)
+        : isSet(object.end_user_feedback)
+        ? globalThis.String(object.end_user_feedback)
+        : "",
+    };
+  },
+
+  toJSON(message: ErrorResponse): unknown {
+    const obj: any = {};
+    if (message.code !== 0) {
+      obj.code = Math.round(message.code);
+    }
+    if (message.description !== "") {
+      obj.description = message.description;
+    }
+    if (message.endUserFeedback !== "") {
+      obj.endUserFeedback = message.endUserFeedback;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ErrorResponse>, I>>(base?: I): ErrorResponse {
+    return ErrorResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ErrorResponse>, I>>(object: I): ErrorResponse {
+    const message = createBaseErrorResponse();
+    message.code = object.code ?? 0;
+    message.description = object.description ?? "";
+    message.endUserFeedback = object.endUserFeedback ?? "";
+    return message;
+  },
+};
 
 function createBaseVehiclesFeed(): VehiclesFeed {
   return { timestamp: 0, entity: [] };

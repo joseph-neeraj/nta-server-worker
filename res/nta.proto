@@ -11,6 +11,15 @@
 syntax = "proto3";
 package nta;
 
+// ─── Error ──────────────────────────────────────────────────────────────────
+
+// Returned on any error response, regardless of endpoint.
+message ErrorResponse {
+  uint32 code              = 1; // mirrors the HTTP status code
+  string description       = 2;
+  string end_user_feedback = 3; // human-friendly message safe to display in a UI
+}
+
 // ─── /v1/live/vehicles ─────────────────────────────────────────────────────
 
 // Feed of all currently active vehicles, enriched with human-readable labels.

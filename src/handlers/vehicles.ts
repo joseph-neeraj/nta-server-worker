@@ -8,6 +8,7 @@
 import { NtaClient, CACHE_TTL } from "../lib/nta-client";
 import { VehiclesFeed } from "../generated/res/nta";
 import { gzip, gunzip } from "../lib/compress";
+import { buildErrorResponse } from "../lib/error-response";
 
 type TripRow = { trip_id: string; trip_headsign: string | null; route_short_name: string | null; agency_id: string | null; agency_name: string | null };
 
@@ -16,7 +17,7 @@ export async function handleVehicles(request: Request, env: Env, ctx: ExecutionC
 	const jsonEnabled = env.ENABLE_JSON === "true";
 
 	if (accept !== "application/x-protobuf" && (accept !== "application/json" || !jsonEnabled)) {
-		return new Response(accept === "application/json" ? null : "Not Acceptable", { status: 406 });
+		return buildErrorResponse(406, "Not Acceptable", null, "This endpoint only supports application/x-protobuf or application/json.");
 	}
 
 	// Always cache proto bytes — one cache entry regardless of the requested format.
@@ -38,7 +39,7 @@ export async function handleVehicles(request: Request, env: Env, ctx: ExecutionC
 	} else {
 		// Cache miss — fetch from NTA and enrich with D1 static data
 		const feed = await new NtaClient(env, ctx).fetchVehicles();
-		if (!feed) return new Response("Upstream error", { status: 502 });
+		if (!feed) return buildErrorResponse(502, "NTA Server down", accept, "NTA Server is down. Try again in a few minutes");
 
 		// Collect all trip_ids so we can fetch enrichment data in a single D1 query
 		const tripIds = feed.entity

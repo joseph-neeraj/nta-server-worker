@@ -32,28 +32,23 @@
 import { NtaClient, CACHE_TTL } from "../lib/nta-client";
 import { TripDetails } from "../generated/res/nta";
 import { gzip, gunzip } from "../lib/compress";
+import { buildErrorResponse } from "../lib/error-response";
 
 export async function handleTripFetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 	if (request.method !== "GET") {
-		return new Response(JSON.stringify({ error: "Method Not Allowed" }), {
-			status: 405,
-			headers: { "Content-Type": "application/json" },
-		});
+		return buildErrorResponse(405, "Method Not Allowed", null, "Only GET requests are supported on this endpoint.");
 	}
 
 	const accept = request.headers.get("Accept");
 	const jsonEnabled = env.ENABLE_JSON === "true";
 
 	if (accept !== "application/x-protobuf" && (accept !== "application/json" || !jsonEnabled)) {
-		return new Response(accept === "application/json" ? null : "Not Acceptable", { status: 406 });
+		return buildErrorResponse(406, "Not Acceptable", null, "This endpoint only supports application/x-protobuf or application/json.");
 	}
 
 	const trip_id = new URL(request.url).pathname.split("/").pop() || "";
 	if (!trip_id) {
-		return new Response(JSON.stringify({ error: "Missing trip_id in path" }), {
-			status: 400,
-			headers: { "Content-Type": "application/json" },
-		});
+		return buildErrorResponse(400, "Missing trip_id in path", accept, "Please provide a valid trip ID in the request URL.");
 	}
 
 	const cache = caches.default;
@@ -80,16 +75,10 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 		]);
 
 		if (dbResult === null) {
-			return new Response(JSON.stringify({ error: "Trip not found" }), {
-				status: 404,
-				headers: { "Content-Type": "application/json" },
-			});
+			return buildErrorResponse(404, "Trip not found", accept, "The requested trip could not be found. It may no longer be active.");
 		}
 		if (dbResult === "error") {
-			return new Response(JSON.stringify({ error: "Database error" }), {
-				status: 500,
-				headers: { "Content-Type": "application/json" },
-			});
+			return buildErrorResponse(500, "Database error", accept, "Something went wrong. Please try again shortly.");
 		}
 
 		const { tripRow, stopRows, shapeRows } = dbResult;

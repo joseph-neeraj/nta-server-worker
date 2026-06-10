@@ -16,10 +16,11 @@ import { FeedMessage } from "../generated/res/gtfs-realtime";
 
 const NTA_BASE = "https://api.nationaltransport.ie/gtfsr/v2";
 
-// NTA fair usage policy: 1 call per 60 seconds per token.
-// So 1 call per 30 seconds per token since we have 2 tokens
-// 31s is the minimum safe value that respects the limit.
-export const CACHE_TTL = 31;
+/** NTA fair usage policy: 1 call per 60 seconds per token.
+ * So 1 call per 30 seconds per token since we have 2 tokens.
+ * 31s is the minimum safe value that respects the limit.
+ */
+export const CACHE_TTL = 61;
 
 export class NtaClient {
 	constructor(private env: Env, private ctx: ExecutionContext) {}

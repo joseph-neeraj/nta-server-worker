@@ -108,7 +108,8 @@ export async function handleVehicles(request: Request, env: Env, ctx: ExecutionC
 					headers: {
 						"Content-Type": "application/x-protobuf",
 						"Content-Encoding": "gzip",
-						"Cache-Control": `public, max-age=${CACHE_TTL}`,
+						// make sure the cache expires a little before the api cache, so fresh data is always available
+						"Cache-Control": `public, max-age=${CACHE_TTL - 2}`,
 					},
 				}),
 			),

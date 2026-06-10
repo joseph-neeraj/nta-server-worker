@@ -2,10 +2,10 @@
 //
 // Returns an enriched vehicle feed: all active vehicles with their real-time
 // positions plus route_short_name and trip_headsign from the static GTFS data.
-// The enriched response is cached on the CF edge for 65 seconds (matching the
-// NTA feed cadence), so the D1 join only runs on cache misses.
+// The enriched response is cached on the CF edge per 30s slot, so the D1 join
+// only runs on cache misses (once per slot per CF PoP).
 
-import { NtaClient, CACHE_TTL } from "../lib/nta-client";
+import { NtaClient, VEHICLE_CACHE_TTL, vehicleSlot } from "../lib/nta-client";
 import { VehiclesFeed } from "../generated/res/nta";
 import { gzip, gunzip } from "../lib/compress";
 import { buildErrorResponse } from "../lib/error-response";
@@ -23,7 +23,9 @@ export async function handleVehicles(request: Request, env: Env, ctx: ExecutionC
 	// Always cache proto bytes — one cache entry regardless of the requested format.
 	// JSON is cheap to derive on the fly from the decoded proto.
 	const cache = caches.default;
-	const cacheKey = new Request("https://nta-worker-cache/v1/live/vehicles/enriched", { method: "GET" });
+	// Slot-scoped key so each 30s slot gets its own enriched cache entry.
+	// Slot 3 reuses slot 2's key (no new NTA data in that slot).
+	const cacheKey = new Request(`https://nta-worker-cache/v1/live/vehicles/enriched?s=${vehicleSlot()}`, { method: "GET" });
 	const cachedProto = await cache.match(cacheKey);
 
 	// Proto cache hit — return directly without any decode/re-encode work
@@ -110,7 +112,7 @@ export async function handleVehicles(request: Request, env: Env, ctx: ExecutionC
 						"Content-Type": "application/x-protobuf",
 						"Content-Encoding": "gzip",
 						// make sure the cache expires a little before the api cache, so fresh data is always available
-						"Cache-Control": `public, max-age=${CACHE_TTL - 2}`,
+						"Cache-Control": `public, max-age=${VEHICLE_CACHE_TTL}`,					
 					},
 				}),
 			),
@@ -119,14 +121,14 @@ export async function handleVehicles(request: Request, env: Env, ctx: ExecutionC
 
 	if (accept === "application/json") {
 		return new Response(JSON.stringify(VehiclesFeed.toJSON(enriched)), {
-			headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${CACHE_TTL}` },
+			headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${VEHICLE_CACHE_TTL}` },
 		});
 	}
 
 	// compressedProto is always set on the cache-miss path; the fallback guards against type errors only
 	const bytes = compressedProto ?? await gzip(VehiclesFeed.encode(enriched).finish());
 	return new Response(bytes, {
-		headers: { "Content-Type": "application/x-protobuf", "Content-Encoding": "gzip", "Cache-Control": `public, max-age=${CACHE_TTL}` },
+		headers: { "Content-Type": "application/x-protobuf", "Content-Encoding": "gzip", "Cache-Control": `public, max-age=${VEHICLE_CACHE_TTL}` },
 	});
 }
 

@@ -88,6 +88,10 @@ message TripDetails {
   string agency_url       = 13;
   repeated ShapePoint shape = 14;
   repeated TripStop   stops = 15;
+
+  // POSIX seconds of the last vehicle progress measurement (from TripUpdate.timestamp).
+  // Absent means NTA did not report a measurement time for this trip.
+  optional uint64 timestamp = 16;
 }
 
 // A single point in the route polyline.

@@ -91,6 +91,11 @@ export interface TripDetails {
   agencyUrl: string;
   shape: ShapePoint[];
   stops: TripStop[];
+  /**
+   * POSIX seconds of the last vehicle progress measurement (from TripUpdate.timestamp).
+   * Absent means NTA did not report a measurement time for this trip.
+   */
+  timestamp?: number | undefined;
 }
 
 /** A single point in the route polyline. */
@@ -925,6 +930,7 @@ function createBaseTripDetails(): TripDetails {
     agencyUrl: "",
     shape: [],
     stops: [],
+    timestamp: undefined,
   };
 }
 
@@ -974,6 +980,9 @@ export const TripDetails: MessageFns<TripDetails> = {
     }
     for (const v of message.stops) {
       TripStop.encode(v!, writer.uint32(122).fork()).join();
+    }
+    if (message.timestamp !== undefined) {
+      writer.uint32(128).uint64(message.timestamp);
     }
     return writer;
   },
@@ -1105,6 +1114,14 @@ export const TripDetails: MessageFns<TripDetails> = {
           message.stops.push(TripStop.decode(reader, reader.uint32()));
           continue;
         }
+        case 16: {
+          if (tag !== 128) {
+            break;
+          }
+
+          message.timestamp = longToNumber(reader.uint64());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1187,6 +1204,7 @@ export const TripDetails: MessageFns<TripDetails> = {
       stops: globalThis.Array.isArray(object?.stops)
         ? object.stops.map((e: any) => TripStop.fromJSON(e))
         : [],
+      timestamp: isSet(object.timestamp) ? globalThis.Number(object.timestamp) : undefined,
     };
   },
 
@@ -1237,6 +1255,9 @@ export const TripDetails: MessageFns<TripDetails> = {
     if (message.stops?.length) {
       obj.stops = message.stops.map((e) => TripStop.toJSON(e));
     }
+    if (message.timestamp !== undefined) {
+      obj.timestamp = Math.round(message.timestamp);
+    }
     return obj;
   },
 
@@ -1260,6 +1281,7 @@ export const TripDetails: MessageFns<TripDetails> = {
     message.agencyUrl = object.agencyUrl ?? "";
     message.shape = object.shape?.map((e) => ShapePoint.fromPartial(e)) || [];
     message.stops = object.stops?.map((e) => TripStop.fromPartial(e)) || [];
+    message.timestamp = object.timestamp ?? undefined;
     return message;
   },
 };

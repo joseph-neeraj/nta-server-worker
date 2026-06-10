@@ -29,7 +29,9 @@
 //   ]
 // }
 
-import { NtaClient, CACHE_TTL } from "../lib/nta-client";
+import { NtaClient } from "../lib/nta-client";
+
+const CACHE_TTL = 65; // seconds
 import { TripDetails } from "../generated/res/nta";
 import { gzip, gunzip } from "../lib/compress";
 import { buildErrorResponse } from "../lib/error-response";
@@ -84,7 +86,7 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 		const { tripRow, stopRows, shapeRows } = dbResult;
 
 		const delayByStopId = new Map<string, { arrivalDelay?: number; departureDelay?: number }>();
-		for (const stu of delayUpdates ?? []) {
+		for (const stu of delayUpdates?.stops ?? []) {
 			if (stu.stopId) {
 				delayByStopId.set(stu.stopId, {
 					...(stu.arrivalDelay != null ? { arrivalDelay: stu.arrivalDelay } : {}),
@@ -107,6 +109,7 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 			routeTextColor: (tripRow.route_text_color as string) ?? "",
 			agencyName: (tripRow.agency_name as string) ?? "",
 			agencyUrl: (tripRow.agency_url as string) ?? "",
+			...(delayUpdates?.timestamp != null ? { timestamp: delayUpdates.timestamp } : {}),
 			shape: shapeRows.map((r) => ({
 				lat: r.shape_pt_lat,
 				lon: r.shape_pt_lon,
@@ -142,7 +145,7 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 						"Content-Type": "application/x-protobuf",
 						"Content-Encoding": "gzip",
 						// make sure the cache expires a little before the api cache, so fresh data is always available
-						"Cache-Control": `public, max-age=${CACHE_TTL - 2}`,
+					"Cache-Control": `public, max-age=${CACHE_TTL - 2}`,
 					},
 				}),
 			),
@@ -226,17 +229,20 @@ async function fetchDelayUpdates(
 	trip_id: string,
 	env: Env,
 	ctx: ExecutionContext,
-): Promise<{ stopId: string | null; arrivalDelay: number | null; departureDelay: number | null }[] | null> {
+): Promise<{ timestamp: number | null; stops: { stopId: string | null; arrivalDelay: number | null; departureDelay: number | null }[] } | null> {
 	const feed = await new NtaClient(env, ctx).fetchTripUpdates();
 	if (!feed) return null;
 
 	const entity = feed.entity.find((e) => e.tripUpdate?.trip?.tripId === trip_id);
 	if (!entity?.tripUpdate) return null;
 
-	return entity.tripUpdate.stopTimeUpdate.map((stu) => ({
-		stopId: stu.stopId ?? null,
-		arrivalDelay: stu.arrival?.delay ?? null,
-		departureDelay: stu.departure?.delay ?? null,
-	}));
+	return {
+		timestamp: entity.tripUpdate.timestamp ?? null,
+		stops: entity.tripUpdate.stopTimeUpdate.map((stu) => ({
+			stopId: stu.stopId ?? null,
+			arrivalDelay: stu.arrival?.delay ?? null,
+			departureDelay: stu.departure?.delay ?? null,
+		})),
+	};
 }
 

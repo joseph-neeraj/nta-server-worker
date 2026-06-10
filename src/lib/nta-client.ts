@@ -18,7 +18,7 @@ const NTA_BASE = "https://api.nationaltransport.ie/gtfsr/v2";
 
 // NTA fair usage policy: 1 call per 60 seconds per token.
 // 61s is the minimum safe value that respects the limit.
-export const CACHE_TTL = 61;
+export const CACHE_TTL = 31;
 
 export class NtaClient {
 	constructor(private env: Env, private ctx: ExecutionContext) {}

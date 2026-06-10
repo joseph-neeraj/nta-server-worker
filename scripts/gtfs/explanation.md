@@ -85,6 +85,22 @@ A shape is only deleted from D1 if its GPS fingerprint no longer appears anywher
 
 ---
 
+## What D1 ends up containing after a diff run
+
+It's worth being explicit about how the rename optimisation affects the data that actually lands in D1:
+
+| Column | Value stored in D1 | Why |
+|---|---|---|
+| `shapes.shape_id` | **Old name** (e.g. `5692_85`) | Rename is skipped entirely — old rows are left untouched |
+| `trips.trip_id` | **New name** | NTA assigns a new `trip_id` on the same day; the primary key changed so the old row is deleted and a new one is written |
+| `trips.shape_id` (the FK column) | **Old name** | `transformRow` substitutes the new shape name back to the old one before writing, so the FK always points to a shape row that exists in D1 |
+
+In short: shapes stay under their original names indefinitely. Trips churn with new `trip_id`s every day (NTA's rolling calendar), but their `shape_id` values are normalised to the old names so the data stays internally consistent.
+
+This means the `shapes` table in D1 will gradually accumulate old shape names as the canonical identifiers. That's fine for this use case — the API only needs the GPS points, not the name itself.
+
+---
+
 ## Results
 
 The test in `scripts/gtfs/test/` runs both the old (unoptimised) and new (optimised) diff against two real NTA feeds — one from 6 June 2026 and one from 9 June 2026 — and shows the comparison:

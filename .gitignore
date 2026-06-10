@@ -180,3 +180,6 @@ dist
 .env*
 !.env.example
 .wrangler/
+
+# temp secrets file to avoid looking up on the cloudflaree dashboard everytime
+secrets

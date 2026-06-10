@@ -90,7 +90,7 @@ export function vehicleSlot(): number {
  *   103     3          25   ← cache miss → NTA fetch → writes epoch=25
  *   104     0          25   ← cache hit  (finds n=103's fresh data)  ✓
  */
-function tripUpdateCacheKey(): number {
+export function tripUpdateCacheKey(): number {
 	const n = Math.floor(Date.now() / SLOT_MS);
 	return Math.floor((n - 3) / CYCLE_SLOTS);
 }

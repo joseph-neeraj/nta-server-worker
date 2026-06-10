@@ -15,6 +15,7 @@
 //   "routeLongName": "Dublin - Edenderry",
 //   "routeType": 3,
 //   "agencyName": "Go-Ahead Ireland",
+//   "timestamp": 1780668623,      // POSIX seconds of last vehicle progress measurement; absent if unavailable
 //   "shape": [{ "lat": 53.3498, "lon": -6.249, "distTraveled": 0 }, ...],
 //   "stops": [
 //     {
@@ -29,7 +30,7 @@
 //   ]
 // }
 
-import { NtaClient } from "../lib/nta-client";
+import { NtaClient, tripUpdateCacheKey } from "../lib/nta-client";
 
 const CACHE_TTL = 65; // seconds
 import { TripDetails } from "../generated/res/nta";
@@ -55,7 +56,7 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 
 	const cache = caches.default;
 	const cacheKey = new Request(
-		`https://nta-worker-cache/v1/live/trips/${encodeURIComponent(trip_id)}`,
+		`https://nta-worker-cache/v1/live/trips/${encodeURIComponent(trip_id)}?e=${tripUpdateCacheKey()}`,
 		{ method: "GET" },
 	);
 	const cachedProto = await cache.match(cacheKey);
@@ -84,6 +85,8 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 		}
 
 		const { tripRow, stopRows, shapeRows } = dbResult;
+
+		console.log(`[trip:${trip_id}] delayUpdates=${delayUpdates == null ? "null" : `timestamp=${delayUpdates.timestamp}, stops=${delayUpdates.stops.length}`}`);
 
 		const delayByStopId = new Map<string, { arrivalDelay?: number; departureDelay?: number }>();
 		for (const stu of delayUpdates?.stops ?? []) {

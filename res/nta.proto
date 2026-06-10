@@ -48,6 +48,26 @@ message VehicleEntity {
   string agency_name      = 13; // e.g. "Dublin Bus"
 }
 
+// ─── /v1/static/stops ───────────────────────────────────────────────────────
+
+// All bus stops from the GTFS static feed. Cached for 24 hours.
+message StopsFeed {
+  repeated Stop stops = 1;
+}
+
+message Stop {
+  string stop_id        = 1;
+  string stop_code      = 2;
+  string stop_name      = 3;
+  string stop_desc      = 4;
+  float  stop_lat       = 5;
+  float  stop_lon       = 6;
+  string zone_id        = 7;
+  string stop_url       = 8;
+  int32  location_type  = 9;
+  string parent_station = 10;
+}
+
 // ─── /v1/live/trips/{trip_id} ───────────────────────────────────────────────
 
 // Full details for a single trip: static GTFS info + real-time stop delays.

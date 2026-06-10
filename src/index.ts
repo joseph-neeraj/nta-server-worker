@@ -3,6 +3,7 @@ import { jwt } from "hono/jwt";
 import { rateLimiter } from "hono-rate-limiter";
 import { handleVehicles } from "./handlers/vehicles";
 import { handleTripFetch } from "./handlers/trip";
+import { handleStops } from "./handlers/stops";
 import { handleInit } from "./handlers/init";
 import { SafeKVStore } from "./lib/kv-rate-limit-store";
 
@@ -42,5 +43,6 @@ app.use("/v1/*", (c, next) =>
 
 app.get("/v1/live/vehicles", (c) => handleVehicles(c.req.raw, c.env, c.executionCtx as ExecutionContext));
 app.get("/v1/live/trips/:trip_id", (c) => handleTripFetch(c.req.raw, c.env, c.executionCtx as ExecutionContext));
+app.get("/v1/static/stops", (c) => handleStops(c.req.raw, c.env, c.executionCtx as ExecutionContext));
 
 export default app;

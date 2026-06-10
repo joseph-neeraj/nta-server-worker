@@ -53,6 +53,24 @@ export interface VehicleEntity {
   agencyName: string;
 }
 
+/** All bus stops from the GTFS static feed. Cached for 24 hours. */
+export interface StopsFeed {
+  stops: Stop[];
+}
+
+export interface Stop {
+  stopId: string;
+  stopCode: string;
+  stopName: string;
+  stopDesc: string;
+  stopLat: number;
+  stopLon: number;
+  zoneId: string;
+  stopUrl: string;
+  locationType: number;
+  parentStation: string;
+}
+
 /**
  * Full details for a single trip: static GTFS info + real-time stop delays.
  * Returned by GET /v1/live/trips/{trip_id}.
@@ -573,6 +591,319 @@ export const VehicleEntity: MessageFns<VehicleEntity> = {
     message.tripHeadsign = object.tripHeadsign ?? "";
     message.agencyId = object.agencyId ?? "";
     message.agencyName = object.agencyName ?? "";
+    return message;
+  },
+};
+
+function createBaseStopsFeed(): StopsFeed {
+  return { stops: [] };
+}
+
+export const StopsFeed: MessageFns<StopsFeed> = {
+  encode(message: StopsFeed, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.stops) {
+      Stop.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): StopsFeed {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStopsFeed();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.stops.push(Stop.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): StopsFeed {
+    return { stops: globalThis.Array.isArray(object?.stops) ? object.stops.map((e: any) => Stop.fromJSON(e)) : [] };
+  },
+
+  toJSON(message: StopsFeed): unknown {
+    const obj: any = {};
+    if (message.stops?.length) {
+      obj.stops = message.stops.map((e) => Stop.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<StopsFeed>, I>>(base?: I): StopsFeed {
+    return StopsFeed.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<StopsFeed>, I>>(object: I): StopsFeed {
+    const message = createBaseStopsFeed();
+    message.stops = object.stops?.map((e) => Stop.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseStop(): Stop {
+  return {
+    stopId: "",
+    stopCode: "",
+    stopName: "",
+    stopDesc: "",
+    stopLat: 0,
+    stopLon: 0,
+    zoneId: "",
+    stopUrl: "",
+    locationType: 0,
+    parentStation: "",
+  };
+}
+
+export const Stop: MessageFns<Stop> = {
+  encode(message: Stop, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.stopId !== "") {
+      writer.uint32(10).string(message.stopId);
+    }
+    if (message.stopCode !== "") {
+      writer.uint32(18).string(message.stopCode);
+    }
+    if (message.stopName !== "") {
+      writer.uint32(26).string(message.stopName);
+    }
+    if (message.stopDesc !== "") {
+      writer.uint32(34).string(message.stopDesc);
+    }
+    if (message.stopLat !== 0) {
+      writer.uint32(45).float(message.stopLat);
+    }
+    if (message.stopLon !== 0) {
+      writer.uint32(53).float(message.stopLon);
+    }
+    if (message.zoneId !== "") {
+      writer.uint32(58).string(message.zoneId);
+    }
+    if (message.stopUrl !== "") {
+      writer.uint32(66).string(message.stopUrl);
+    }
+    if (message.locationType !== 0) {
+      writer.uint32(72).int32(message.locationType);
+    }
+    if (message.parentStation !== "") {
+      writer.uint32(82).string(message.parentStation);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): Stop {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStop();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.stopId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.stopCode = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.stopName = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.stopDesc = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 45) {
+            break;
+          }
+
+          message.stopLat = reader.float();
+          continue;
+        }
+        case 6: {
+          if (tag !== 53) {
+            break;
+          }
+
+          message.stopLon = reader.float();
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.zoneId = reader.string();
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.stopUrl = reader.string();
+          continue;
+        }
+        case 9: {
+          if (tag !== 72) {
+            break;
+          }
+
+          message.locationType = reader.int32();
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.parentStation = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): Stop {
+    return {
+      stopId: isSet(object.stopId)
+        ? globalThis.String(object.stopId)
+        : isSet(object.stop_id)
+        ? globalThis.String(object.stop_id)
+        : "",
+      stopCode: isSet(object.stopCode)
+        ? globalThis.String(object.stopCode)
+        : isSet(object.stop_code)
+        ? globalThis.String(object.stop_code)
+        : "",
+      stopName: isSet(object.stopName)
+        ? globalThis.String(object.stopName)
+        : isSet(object.stop_name)
+        ? globalThis.String(object.stop_name)
+        : "",
+      stopDesc: isSet(object.stopDesc)
+        ? globalThis.String(object.stopDesc)
+        : isSet(object.stop_desc)
+        ? globalThis.String(object.stop_desc)
+        : "",
+      stopLat: isSet(object.stopLat)
+        ? globalThis.Number(object.stopLat)
+        : isSet(object.stop_lat)
+        ? globalThis.Number(object.stop_lat)
+        : 0,
+      stopLon: isSet(object.stopLon)
+        ? globalThis.Number(object.stopLon)
+        : isSet(object.stop_lon)
+        ? globalThis.Number(object.stop_lon)
+        : 0,
+      zoneId: isSet(object.zoneId)
+        ? globalThis.String(object.zoneId)
+        : isSet(object.zone_id)
+        ? globalThis.String(object.zone_id)
+        : "",
+      stopUrl: isSet(object.stopUrl)
+        ? globalThis.String(object.stopUrl)
+        : isSet(object.stop_url)
+        ? globalThis.String(object.stop_url)
+        : "",
+      locationType: isSet(object.locationType)
+        ? globalThis.Number(object.locationType)
+        : isSet(object.location_type)
+        ? globalThis.Number(object.location_type)
+        : 0,
+      parentStation: isSet(object.parentStation)
+        ? globalThis.String(object.parentStation)
+        : isSet(object.parent_station)
+        ? globalThis.String(object.parent_station)
+        : "",
+    };
+  },
+
+  toJSON(message: Stop): unknown {
+    const obj: any = {};
+    if (message.stopId !== "") {
+      obj.stopId = message.stopId;
+    }
+    if (message.stopCode !== "") {
+      obj.stopCode = message.stopCode;
+    }
+    if (message.stopName !== "") {
+      obj.stopName = message.stopName;
+    }
+    if (message.stopDesc !== "") {
+      obj.stopDesc = message.stopDesc;
+    }
+    if (message.stopLat !== 0) {
+      obj.stopLat = message.stopLat;
+    }
+    if (message.stopLon !== 0) {
+      obj.stopLon = message.stopLon;
+    }
+    if (message.zoneId !== "") {
+      obj.zoneId = message.zoneId;
+    }
+    if (message.stopUrl !== "") {
+      obj.stopUrl = message.stopUrl;
+    }
+    if (message.locationType !== 0) {
+      obj.locationType = Math.round(message.locationType);
+    }
+    if (message.parentStation !== "") {
+      obj.parentStation = message.parentStation;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<Stop>, I>>(base?: I): Stop {
+    return Stop.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<Stop>, I>>(object: I): Stop {
+    const message = createBaseStop();
+    message.stopId = object.stopId ?? "";
+    message.stopCode = object.stopCode ?? "";
+    message.stopName = object.stopName ?? "";
+    message.stopDesc = object.stopDesc ?? "";
+    message.stopLat = object.stopLat ?? 0;
+    message.stopLon = object.stopLon ?? 0;
+    message.zoneId = object.zoneId ?? "";
+    message.stopUrl = object.stopUrl ?? "";
+    message.locationType = object.locationType ?? 0;
+    message.parentStation = object.parentStation ?? "";
     return message;
   },
 };

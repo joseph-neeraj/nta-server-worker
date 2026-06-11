@@ -36,6 +36,7 @@ const OUT_FILE = `${ARTIFACTS_DIR}/gtfs_${TS}.sql`;
 const STATS_FILE = `${ARTIFACTS_DIR}/.gtfs_stats.json`;        // per-table diff counts for confirmation prompt
 const PENDING_ZIP_FILE = `${ARTIFACTS_DIR}/.gtfs_pending_zip`; // path of just-downloaded zip (not yet committed)
 const LAST_ZIP_FILE = `${ARTIFACTS_DIR}/.gtfs_last_zip`;       // path of last successfully imported zip
+const FEED_VERSION_FILE = `${ARTIFACTS_DIR}/.gtfs_feed_version`; // feed_version UUID from feed_info.txt
 
 console.log(chalk.dim(`  zip: ${ZIP_FILE}`));
 console.log(chalk.dim(`  sql: ${OUT_FILE}`));
@@ -282,6 +283,7 @@ writeFileSync(STATS_FILE, JSON.stringify({
 }, null, 2));
 
 writeFileSync(`${ARTIFACTS_DIR}/.gtfs_last_sql`, OUT_FILE);
+writeFileSync(FEED_VERSION_FILE, newVersion ?? '');
 
 const { size } = (await import('fs')).statSync(OUT_FILE);
 console.log(chalk.green(`\n✔ Wrote ${chalk.bold(OUT_FILE)} (${(size / 1024 / 1024).toFixed(1)} MB)`));

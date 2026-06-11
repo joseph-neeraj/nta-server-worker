@@ -1,14 +1,15 @@
 // Handler for GET /v1/static/stops
 //
 // Returns all bus stops from the GTFS static feed.
-// Proto bytes are cached on the CF edge for 24 hours — the static feed only
-// changes daily so there is no benefit in a shorter TTL.
+// Freshness is controlled entirely by the static version key embedded in the
+// cache URL — a new import writes a new version, making the old cache entry
+// unreachable. The edge TTL is set to 1 year so CF holds entries indefinitely;
+// the version key is the only expiry mechanism. Edge TTL is 20 hours.
 
 import { StopsFeed } from "../generated/res/nta";
 import { gzip, gunzip } from "../lib/compress";
 import { buildErrorResponse } from "../lib/error-response";
-
-const STOPS_CACHE_TTL = 86400; // 24 hours
+import { getStaticVersionWithFallback } from "../lib/static-version";
 
 export async function handleStops(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 	if (request.method !== "GET") {
@@ -22,8 +23,9 @@ export async function handleStops(request: Request, env: Env, ctx: ExecutionCont
 		return buildErrorResponse(406, "Not Acceptable", null, "This endpoint only supports application/x-protobuf or application/json.");
 	}
 
+	const version = await getStaticVersionWithFallback(env);
 	const cache = caches.default;
-	const cacheKey = new Request("https://nta-worker-cache/v1/static/stops", { method: "GET" });
+	const cacheKey = new Request(`https://nta-worker-cache/v1/static/stops?v=${encodeURIComponent(version)}`, { method: "GET" });
 	const cachedProto = await cache.match(cacheKey);
 
 	// Proto cache hit — return directly without any decode/re-encode work
@@ -55,6 +57,7 @@ export async function handleStops(request: Request, env: Env, ctx: ExecutionCont
 		}
 
 		feed = {
+			version,
 			stops: rows.map((r) => ({
 				stopId: (r.stop_id as string) ?? "",
 				stopCode: (r.stop_code as string) ?? "",
@@ -81,7 +84,8 @@ export async function handleStops(request: Request, env: Env, ctx: ExecutionCont
 					headers: {
 						"Content-Type": "application/x-protobuf",
 						"Content-Encoding": "gzip",
-						"Cache-Control": `public, max-age=${STOPS_CACHE_TTL}`,
+						// 20 hours — version key in the URL is the only expiry mechanism
+						"Cache-Control": "public, max-age=72000",
 					},
 				}),
 			),
@@ -90,20 +94,13 @@ export async function handleStops(request: Request, env: Env, ctx: ExecutionCont
 
 	if (accept === "application/json") {
 		return new Response(JSON.stringify(StopsFeed.toJSON(feed)), {
-			headers: {
-				"Content-Type": "application/json",
-				"Cache-Control": `public, max-age=${STOPS_CACHE_TTL}`,
-			},
+			headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=300" },
 		});
 	}
 
 	// compressedProto is always set on the cache-miss path; the fallback guards against type errors only
 	const bytes = compressedProto ?? await gzip(StopsFeed.encode(feed).finish());
 	return new Response(bytes, {
-		headers: {
-			"Content-Type": "application/x-protobuf",
-			"Content-Encoding": "gzip",
-			"Cache-Control": `public, max-age=${STOPS_CACHE_TTL}`,
-		},
+		headers: { "Content-Type": "application/x-protobuf", "Content-Encoding": "gzip", "Cache-Control": "public, max-age=300" },
 	});
 }

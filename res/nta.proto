@@ -50,9 +50,10 @@ message VehicleEntity {
 
 // ─── /v1/static/stops ───────────────────────────────────────────────────────
 
-// All bus stops from the GTFS static feed. Cached for 24 hours.
+// All bus stops from the GTFS static feed.
 message StopsFeed {
-  repeated Stop stops = 1;
+  string version       = 1; // static data version, e.g. "<feed-uuid>/<ISO-timestamp>"
+  repeated Stop stops  = 2;
 }
 
 message Stop {

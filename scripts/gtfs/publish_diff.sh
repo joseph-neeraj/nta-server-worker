@@ -7,6 +7,12 @@ GREEN='\033[0;32m'
 DIM='\033[2m'
 RESET='\033[0m'
 
+# Ensure wrangler-compatible Node version (≥22) via nvm
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+# shellcheck source=/dev/null
+[[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
+nvm use 22 --silent
+
 export CLOUDFLARE_ACCOUNT_ID="dummy value"
 export CLOUDFLARE_API_TOKEN="dummy value"
 
@@ -53,5 +59,14 @@ if [[ -f scripts/gtfs/artifacts/.gtfs_pending_zip ]]; then
   cp scripts/gtfs/artifacts/.gtfs_pending_zip scripts/gtfs/artifacts/.gtfs_last_zip
   echo -e "${DIM}  Baseline updated → $(cat scripts/gtfs/artifacts/.gtfs_last_zip)${RESET}"
 fi
+
+# Stamp the static data version in KV so workers invalidate their edge cache.
+# Version = "<feed_uuid>/<ISO-timestamp>" — the UUID comes from feed_info.txt,
+# written by generate-sql.mjs to .gtfs_feed_version after each run.
+FEED_UUID=$(cat scripts/gtfs/artifacts/.gtfs_feed_version)
+STATIC_VERSION="${FEED_UUID}/$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo -e "\n${YELLOW}▶ Writing static version to KV: ${STATIC_VERSION}${RESET}"
+npx wrangler kv key put --binding=STATIC_META_KV $REMOTE_FLAG "static:version" "$STATIC_VERSION"
+echo -e "${GREEN}${BOLD}  ✔ static:version = ${STATIC_VERSION}${RESET}"
 
 echo -e "\n${GREEN}${BOLD}✔ Done${RESET}"

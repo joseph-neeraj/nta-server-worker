@@ -75,6 +75,8 @@ Examples of when to comment:
 
 Never ever git commit or git push code. Leave it to the user.
 
+## 6. Always come up with a plan, details and all, and wait for the user to confirm before making any changes.
+
 
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

@@ -53,8 +53,10 @@ export interface VehicleEntity {
   agencyName: string;
 }
 
-/** All bus stops from the GTFS static feed. Cached for 24 hours. */
+/** All bus stops from the GTFS static feed. Cached for 20 hours. */
 export interface StopsFeed {
+  /** static data version, e.g. "<feed-uuid>/<ISO-timestamp>" */
+  version: string;
   stops: Stop[];
 }
 
@@ -601,13 +603,16 @@ export const VehicleEntity: MessageFns<VehicleEntity> = {
 };
 
 function createBaseStopsFeed(): StopsFeed {
-  return { stops: [] };
+  return { version: "", stops: [] };
 }
 
 export const StopsFeed: MessageFns<StopsFeed> = {
   encode(message: StopsFeed, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.version !== "") {
+      writer.uint32(10).string(message.version);
+    }
     for (const v of message.stops) {
-      Stop.encode(v!, writer.uint32(10).fork()).join();
+      Stop.encode(v!, writer.uint32(18).fork()).join();
     }
     return writer;
   },
@@ -624,6 +629,14 @@ export const StopsFeed: MessageFns<StopsFeed> = {
             break;
           }
 
+          message.version = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
           message.stops.push(Stop.decode(reader, reader.uint32()));
           continue;
         }
@@ -637,11 +650,17 @@ export const StopsFeed: MessageFns<StopsFeed> = {
   },
 
   fromJSON(object: any): StopsFeed {
-    return { stops: globalThis.Array.isArray(object?.stops) ? object.stops.map((e: any) => Stop.fromJSON(e)) : [] };
+    return {
+      version: isSet(object.version) ? globalThis.String(object.version) : "",
+      stops: globalThis.Array.isArray(object?.stops) ? object.stops.map((e: any) => Stop.fromJSON(e)) : [],
+    };
   },
 
   toJSON(message: StopsFeed): unknown {
     const obj: any = {};
+    if (message.version !== "") {
+      obj.version = message.version;
+    }
     if (message.stops?.length) {
       obj.stops = message.stops.map((e) => Stop.toJSON(e));
     }
@@ -653,6 +672,7 @@ export const StopsFeed: MessageFns<StopsFeed> = {
   },
   fromPartial<I extends Exact<DeepPartial<StopsFeed>, I>>(object: I): StopsFeed {
     const message = createBaseStopsFeed();
+    message.version = object.version ?? "";
     message.stops = object.stops?.map((e) => Stop.fromPartial(e)) || [];
     return message;
   },

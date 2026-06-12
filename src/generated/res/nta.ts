@@ -79,6 +79,7 @@ export interface Stop {
  */
 export interface StopSchedule {
   stopId: string;
+  stopCode: string;
   stopName: string;
   stopLat: number;
   stopLon: number;
@@ -101,6 +102,8 @@ export interface StopArrival {
   scheduledArrival: string;
   /** HH:MM:SS */
   scheduledDeparture: string;
+  /** e.g. "7778" — operator identifier */
+  agencyId: string;
   /**
    * Real-time delay in seconds (positive = late).
    * Absent means no live data for this trip at this stop.
@@ -970,7 +973,7 @@ export const Stop: MessageFns<Stop> = {
 };
 
 function createBaseStopSchedule(): StopSchedule {
-  return { stopId: "", stopName: "", stopLat: 0, stopLon: 0, arrivals: [], realtimeTimestamp: undefined };
+  return { stopId: "", stopCode: "", stopName: "", stopLat: 0, stopLon: 0, arrivals: [], realtimeTimestamp: undefined };
 }
 
 export const StopSchedule: MessageFns<StopSchedule> = {
@@ -978,20 +981,23 @@ export const StopSchedule: MessageFns<StopSchedule> = {
     if (message.stopId !== "") {
       writer.uint32(10).string(message.stopId);
     }
+    if (message.stopCode !== "") {
+      writer.uint32(18).string(message.stopCode);
+    }
     if (message.stopName !== "") {
-      writer.uint32(18).string(message.stopName);
+      writer.uint32(26).string(message.stopName);
     }
     if (message.stopLat !== 0) {
-      writer.uint32(29).float(message.stopLat);
+      writer.uint32(37).float(message.stopLat);
     }
     if (message.stopLon !== 0) {
-      writer.uint32(37).float(message.stopLon);
+      writer.uint32(45).float(message.stopLon);
     }
     for (const v of message.arrivals) {
-      StopArrival.encode(v!, writer.uint32(42).fork()).join();
+      StopArrival.encode(v!, writer.uint32(50).fork()).join();
     }
     if (message.realtimeTimestamp !== undefined) {
-      writer.uint32(48).uint64(message.realtimeTimestamp);
+      writer.uint32(56).uint64(message.realtimeTimestamp);
     }
     return writer;
   },
@@ -1016,15 +1022,15 @@ export const StopSchedule: MessageFns<StopSchedule> = {
             break;
           }
 
-          message.stopName = reader.string();
+          message.stopCode = reader.string();
           continue;
         }
         case 3: {
-          if (tag !== 29) {
+          if (tag !== 26) {
             break;
           }
 
-          message.stopLat = reader.float();
+          message.stopName = reader.string();
           continue;
         }
         case 4: {
@@ -1032,19 +1038,27 @@ export const StopSchedule: MessageFns<StopSchedule> = {
             break;
           }
 
-          message.stopLon = reader.float();
+          message.stopLat = reader.float();
           continue;
         }
         case 5: {
-          if (tag !== 42) {
+          if (tag !== 45) {
+            break;
+          }
+
+          message.stopLon = reader.float();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
             break;
           }
 
           message.arrivals.push(StopArrival.decode(reader, reader.uint32()));
           continue;
         }
-        case 6: {
-          if (tag !== 48) {
+        case 7: {
+          if (tag !== 56) {
             break;
           }
 
@@ -1066,6 +1080,11 @@ export const StopSchedule: MessageFns<StopSchedule> = {
         ? globalThis.String(object.stopId)
         : isSet(object.stop_id)
         ? globalThis.String(object.stop_id)
+        : "",
+      stopCode: isSet(object.stopCode)
+        ? globalThis.String(object.stopCode)
+        : isSet(object.stop_code)
+        ? globalThis.String(object.stop_code)
         : "",
       stopName: isSet(object.stopName)
         ? globalThis.String(object.stopName)
@@ -1098,6 +1117,9 @@ export const StopSchedule: MessageFns<StopSchedule> = {
     if (message.stopId !== "") {
       obj.stopId = message.stopId;
     }
+    if (message.stopCode !== "") {
+      obj.stopCode = message.stopCode;
+    }
     if (message.stopName !== "") {
       obj.stopName = message.stopName;
     }
@@ -1122,6 +1144,7 @@ export const StopSchedule: MessageFns<StopSchedule> = {
   fromPartial<I extends Exact<DeepPartial<StopSchedule>, I>>(object: I): StopSchedule {
     const message = createBaseStopSchedule();
     message.stopId = object.stopId ?? "";
+    message.stopCode = object.stopCode ?? "";
     message.stopName = object.stopName ?? "";
     message.stopLat = object.stopLat ?? 0;
     message.stopLon = object.stopLon ?? 0;
@@ -1140,6 +1163,7 @@ function createBaseStopArrival(): StopArrival {
     stopSequence: 0,
     scheduledArrival: "",
     scheduledDeparture: "",
+    agencyId: "",
     arrivalDelay: undefined,
     departureDelay: undefined,
   };
@@ -1168,11 +1192,14 @@ export const StopArrival: MessageFns<StopArrival> = {
     if (message.scheduledDeparture !== "") {
       writer.uint32(58).string(message.scheduledDeparture);
     }
+    if (message.agencyId !== "") {
+      writer.uint32(66).string(message.agencyId);
+    }
     if (message.arrivalDelay !== undefined) {
-      writer.uint32(64).int32(message.arrivalDelay);
+      writer.uint32(72).int32(message.arrivalDelay);
     }
     if (message.departureDelay !== undefined) {
-      writer.uint32(72).int32(message.departureDelay);
+      writer.uint32(80).int32(message.departureDelay);
     }
     return writer;
   },
@@ -1241,15 +1268,23 @@ export const StopArrival: MessageFns<StopArrival> = {
           continue;
         }
         case 8: {
-          if (tag !== 64) {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.agencyId = reader.string();
+          continue;
+        }
+        case 9: {
+          if (tag !== 72) {
             break;
           }
 
           message.arrivalDelay = reader.int32();
           continue;
         }
-        case 9: {
-          if (tag !== 72) {
+        case 10: {
+          if (tag !== 80) {
             break;
           }
 
@@ -1302,6 +1337,11 @@ export const StopArrival: MessageFns<StopArrival> = {
         : isSet(object.scheduled_departure)
         ? globalThis.String(object.scheduled_departure)
         : "",
+      agencyId: isSet(object.agencyId)
+        ? globalThis.String(object.agencyId)
+        : isSet(object.agency_id)
+        ? globalThis.String(object.agency_id)
+        : "",
       arrivalDelay: isSet(object.arrivalDelay)
         ? globalThis.Number(object.arrivalDelay)
         : isSet(object.arrival_delay)
@@ -1338,6 +1378,9 @@ export const StopArrival: MessageFns<StopArrival> = {
     if (message.scheduledDeparture !== "") {
       obj.scheduledDeparture = message.scheduledDeparture;
     }
+    if (message.agencyId !== "") {
+      obj.agencyId = message.agencyId;
+    }
     if (message.arrivalDelay !== undefined) {
       obj.arrivalDelay = Math.round(message.arrivalDelay);
     }
@@ -1359,6 +1402,7 @@ export const StopArrival: MessageFns<StopArrival> = {
     message.stopSequence = object.stopSequence ?? 0;
     message.scheduledArrival = object.scheduledArrival ?? "";
     message.scheduledDeparture = object.scheduledDeparture ?? "";
+    message.agencyId = object.agencyId ?? "";
     message.arrivalDelay = object.arrivalDelay ?? undefined;
     message.departureDelay = object.departureDelay ?? undefined;
     return message;

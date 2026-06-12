@@ -93,6 +93,7 @@ export async function handleStopSchedule(request: Request, env: Env, ctx: Execut
 
 		schedule = {
 			stopId: stopRow.stop_id as string,
+			stopCode: (stopRow.stop_code as string) ?? "",
 			stopName: stopRow.stop_name as string,
 			stopLat: stopRow.stop_lat as number,
 			stopLon: stopRow.stop_lon as number,
@@ -105,6 +106,7 @@ export async function handleStopSchedule(request: Request, env: Env, ctx: Execut
 				stopSequence: r.stop_sequence as number,
 				scheduledArrival: (r.arrival_time as string) ?? "",
 				scheduledDeparture: (r.departure_time as string) ?? "",
+				agencyId: (r.agency_id as string) ?? "",
 				...delayByTripId.get(r.trip_id as string),
 			})),
 		};

@@ -61,7 +61,7 @@ export class StaticDb {
 			const [stopResult, arrivalsResult] = await this.db.batch([
 				// Query 1: look up the stop itself so we can 404 if it doesn't exist
 				this.db
-					.prepare(`SELECT stop_id, stop_name, stop_lat, stop_lon FROM stops WHERE stop_id = ?`)
+					.prepare(`SELECT stop_id, stop_code, stop_name, stop_lat, stop_lon FROM stops WHERE stop_id = ?`)
 					.bind(stopId),
 
 				// Query 2: all scheduled arrivals at this stop for today's active services,
@@ -87,7 +87,7 @@ export class StaticDb {
 				this.db
 					.prepare(
 						`SELECT st.trip_id, st.stop_sequence, st.arrival_time, st.departure_time,
-						        r.route_short_name, t.trip_headsign, t.direction_id
+						        r.route_short_name, r.agency_id, t.trip_headsign, t.direction_id
 						 FROM stop_times st
 						 JOIN trips t   ON st.trip_id  = t.trip_id
 						 JOIN routes r  ON t.route_id  = r.route_id

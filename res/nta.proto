@@ -75,13 +75,14 @@ message Stop {
 // Returned by GET /v1/live/stops/{stop_id}.
 message StopSchedule {
   string stop_id   = 1;
-  string stop_name = 2;
-  float  stop_lat  = 3;
-  float  stop_lon  = 4;
-  repeated StopArrival arrivals = 5;
+  string stop_code = 2;
+  string stop_name = 3;
+  float  stop_lat  = 4;
+  float  stop_lon  = 5;
+  repeated StopArrival arrivals = 6;
   // POSIX seconds from the NTA TripUpdates feed header.
   // Tells clients how fresh the delay data is. Absent if the feed was unavailable.
-  optional uint64 realtime_timestamp = 6;
+  optional uint64 realtime_timestamp = 7;
 }
 
 // One scheduled arrival/departure at the stop, with optional real-time delay.
@@ -93,10 +94,11 @@ message StopArrival {
   int32  stop_sequence       = 5;
   string scheduled_arrival   = 6; // HH:MM:SS
   string scheduled_departure = 7; // HH:MM:SS
+  string agency_id           = 8; // e.g. "7778" — operator identifier
   // Real-time delay in seconds (positive = late).
   // Absent means no live data for this trip at this stop.
-  optional int32 arrival_delay   = 8;
-  optional int32 departure_delay = 9;
+  optional int32 arrival_delay   = 9;
+  optional int32 departure_delay = 10;
 }
 
 // ─── /v1/live/trips/{trip_id} ───────────────────────────────────────────────

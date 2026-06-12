@@ -69,6 +69,36 @@ message Stop {
   string parent_station = 10;
 }
 
+// ─── /v1/live/stops/{stop_id} ───────────────────────────────────────────────
+
+// All of today's scheduled arrivals at a single stop, with real-time delays.
+// Returned by GET /v1/live/stops/{stop_id}.
+message StopSchedule {
+  string stop_id   = 1;
+  string stop_name = 2;
+  float  stop_lat  = 3;
+  float  stop_lon  = 4;
+  repeated StopArrival arrivals = 5;
+  // POSIX seconds from the NTA TripUpdates feed header.
+  // Tells clients how fresh the delay data is. Absent if the feed was unavailable.
+  optional uint64 realtime_timestamp = 6;
+}
+
+// One scheduled arrival/departure at the stop, with optional real-time delay.
+message StopArrival {
+  string trip_id             = 1;
+  string route_short_name    = 2;
+  string trip_headsign       = 3;
+  int32  direction_id        = 4;
+  int32  stop_sequence       = 5;
+  string scheduled_arrival   = 6; // HH:MM:SS
+  string scheduled_departure = 7; // HH:MM:SS
+  // Real-time delay in seconds (positive = late).
+  // Absent means no live data for this trip at this stop.
+  optional int32 arrival_delay   = 8;
+  optional int32 departure_delay = 9;
+}
+
 // ─── /v1/live/trips/{trip_id} ───────────────────────────────────────────────
 
 // Full details for a single trip: static GTFS info + real-time stop delays.

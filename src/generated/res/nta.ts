@@ -53,7 +53,7 @@ export interface VehicleEntity {
   agencyName: string;
 }
 
-/** All bus stops from the GTFS static feed. Cached for 20 hours. */
+/** All bus stops from the GTFS static feed. */
 export interface StopsFeed {
   /** static data version, e.g. "<feed-uuid>/<ISO-timestamp>" */
   version: string;
@@ -71,6 +71,42 @@ export interface Stop {
   stopUrl: string;
   locationType: number;
   parentStation: string;
+}
+
+/**
+ * All of today's scheduled arrivals at a single stop, with real-time delays.
+ * Returned by GET /v1/live/stops/{stop_id}.
+ */
+export interface StopSchedule {
+  stopId: string;
+  stopName: string;
+  stopLat: number;
+  stopLon: number;
+  arrivals: StopArrival[];
+  /**
+   * POSIX seconds from the NTA TripUpdates feed header.
+   * Tells clients how fresh the delay data is. Absent if the feed was unavailable.
+   */
+  realtimeTimestamp?: number | undefined;
+}
+
+/** One scheduled arrival/departure at the stop, with optional real-time delay. */
+export interface StopArrival {
+  tripId: string;
+  routeShortName: string;
+  tripHeadsign: string;
+  directionId: number;
+  stopSequence: number;
+  /** HH:MM:SS */
+  scheduledArrival: string;
+  /** HH:MM:SS */
+  scheduledDeparture: string;
+  /**
+   * Real-time delay in seconds (positive = late).
+   * Absent means no live data for this trip at this stop.
+   */
+  arrivalDelay?: number | undefined;
+  departureDelay?: number | undefined;
 }
 
 /**
@@ -929,6 +965,402 @@ export const Stop: MessageFns<Stop> = {
     message.stopUrl = object.stopUrl ?? "";
     message.locationType = object.locationType ?? 0;
     message.parentStation = object.parentStation ?? "";
+    return message;
+  },
+};
+
+function createBaseStopSchedule(): StopSchedule {
+  return { stopId: "", stopName: "", stopLat: 0, stopLon: 0, arrivals: [], realtimeTimestamp: undefined };
+}
+
+export const StopSchedule: MessageFns<StopSchedule> = {
+  encode(message: StopSchedule, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.stopId !== "") {
+      writer.uint32(10).string(message.stopId);
+    }
+    if (message.stopName !== "") {
+      writer.uint32(18).string(message.stopName);
+    }
+    if (message.stopLat !== 0) {
+      writer.uint32(29).float(message.stopLat);
+    }
+    if (message.stopLon !== 0) {
+      writer.uint32(37).float(message.stopLon);
+    }
+    for (const v of message.arrivals) {
+      StopArrival.encode(v!, writer.uint32(42).fork()).join();
+    }
+    if (message.realtimeTimestamp !== undefined) {
+      writer.uint32(48).uint64(message.realtimeTimestamp);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): StopSchedule {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStopSchedule();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.stopId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.stopName = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 29) {
+            break;
+          }
+
+          message.stopLat = reader.float();
+          continue;
+        }
+        case 4: {
+          if (tag !== 37) {
+            break;
+          }
+
+          message.stopLon = reader.float();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.arrivals.push(StopArrival.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 6: {
+          if (tag !== 48) {
+            break;
+          }
+
+          message.realtimeTimestamp = longToNumber(reader.uint64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): StopSchedule {
+    return {
+      stopId: isSet(object.stopId)
+        ? globalThis.String(object.stopId)
+        : isSet(object.stop_id)
+        ? globalThis.String(object.stop_id)
+        : "",
+      stopName: isSet(object.stopName)
+        ? globalThis.String(object.stopName)
+        : isSet(object.stop_name)
+        ? globalThis.String(object.stop_name)
+        : "",
+      stopLat: isSet(object.stopLat)
+        ? globalThis.Number(object.stopLat)
+        : isSet(object.stop_lat)
+        ? globalThis.Number(object.stop_lat)
+        : 0,
+      stopLon: isSet(object.stopLon)
+        ? globalThis.Number(object.stopLon)
+        : isSet(object.stop_lon)
+        ? globalThis.Number(object.stop_lon)
+        : 0,
+      arrivals: globalThis.Array.isArray(object?.arrivals)
+        ? object.arrivals.map((e: any) => StopArrival.fromJSON(e))
+        : [],
+      realtimeTimestamp: isSet(object.realtimeTimestamp)
+        ? globalThis.Number(object.realtimeTimestamp)
+        : isSet(object.realtime_timestamp)
+        ? globalThis.Number(object.realtime_timestamp)
+        : undefined,
+    };
+  },
+
+  toJSON(message: StopSchedule): unknown {
+    const obj: any = {};
+    if (message.stopId !== "") {
+      obj.stopId = message.stopId;
+    }
+    if (message.stopName !== "") {
+      obj.stopName = message.stopName;
+    }
+    if (message.stopLat !== 0) {
+      obj.stopLat = message.stopLat;
+    }
+    if (message.stopLon !== 0) {
+      obj.stopLon = message.stopLon;
+    }
+    if (message.arrivals?.length) {
+      obj.arrivals = message.arrivals.map((e) => StopArrival.toJSON(e));
+    }
+    if (message.realtimeTimestamp !== undefined) {
+      obj.realtimeTimestamp = Math.round(message.realtimeTimestamp);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<StopSchedule>, I>>(base?: I): StopSchedule {
+    return StopSchedule.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<StopSchedule>, I>>(object: I): StopSchedule {
+    const message = createBaseStopSchedule();
+    message.stopId = object.stopId ?? "";
+    message.stopName = object.stopName ?? "";
+    message.stopLat = object.stopLat ?? 0;
+    message.stopLon = object.stopLon ?? 0;
+    message.arrivals = object.arrivals?.map((e) => StopArrival.fromPartial(e)) || [];
+    message.realtimeTimestamp = object.realtimeTimestamp ?? undefined;
+    return message;
+  },
+};
+
+function createBaseStopArrival(): StopArrival {
+  return {
+    tripId: "",
+    routeShortName: "",
+    tripHeadsign: "",
+    directionId: 0,
+    stopSequence: 0,
+    scheduledArrival: "",
+    scheduledDeparture: "",
+    arrivalDelay: undefined,
+    departureDelay: undefined,
+  };
+}
+
+export const StopArrival: MessageFns<StopArrival> = {
+  encode(message: StopArrival, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.tripId !== "") {
+      writer.uint32(10).string(message.tripId);
+    }
+    if (message.routeShortName !== "") {
+      writer.uint32(18).string(message.routeShortName);
+    }
+    if (message.tripHeadsign !== "") {
+      writer.uint32(26).string(message.tripHeadsign);
+    }
+    if (message.directionId !== 0) {
+      writer.uint32(32).int32(message.directionId);
+    }
+    if (message.stopSequence !== 0) {
+      writer.uint32(40).int32(message.stopSequence);
+    }
+    if (message.scheduledArrival !== "") {
+      writer.uint32(50).string(message.scheduledArrival);
+    }
+    if (message.scheduledDeparture !== "") {
+      writer.uint32(58).string(message.scheduledDeparture);
+    }
+    if (message.arrivalDelay !== undefined) {
+      writer.uint32(64).int32(message.arrivalDelay);
+    }
+    if (message.departureDelay !== undefined) {
+      writer.uint32(72).int32(message.departureDelay);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): StopArrival {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStopArrival();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.tripId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.routeShortName = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.tripHeadsign = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.directionId = reader.int32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.stopSequence = reader.int32();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.scheduledArrival = reader.string();
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.scheduledDeparture = reader.string();
+          continue;
+        }
+        case 8: {
+          if (tag !== 64) {
+            break;
+          }
+
+          message.arrivalDelay = reader.int32();
+          continue;
+        }
+        case 9: {
+          if (tag !== 72) {
+            break;
+          }
+
+          message.departureDelay = reader.int32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): StopArrival {
+    return {
+      tripId: isSet(object.tripId)
+        ? globalThis.String(object.tripId)
+        : isSet(object.trip_id)
+        ? globalThis.String(object.trip_id)
+        : "",
+      routeShortName: isSet(object.routeShortName)
+        ? globalThis.String(object.routeShortName)
+        : isSet(object.route_short_name)
+        ? globalThis.String(object.route_short_name)
+        : "",
+      tripHeadsign: isSet(object.tripHeadsign)
+        ? globalThis.String(object.tripHeadsign)
+        : isSet(object.trip_headsign)
+        ? globalThis.String(object.trip_headsign)
+        : "",
+      directionId: isSet(object.directionId)
+        ? globalThis.Number(object.directionId)
+        : isSet(object.direction_id)
+        ? globalThis.Number(object.direction_id)
+        : 0,
+      stopSequence: isSet(object.stopSequence)
+        ? globalThis.Number(object.stopSequence)
+        : isSet(object.stop_sequence)
+        ? globalThis.Number(object.stop_sequence)
+        : 0,
+      scheduledArrival: isSet(object.scheduledArrival)
+        ? globalThis.String(object.scheduledArrival)
+        : isSet(object.scheduled_arrival)
+        ? globalThis.String(object.scheduled_arrival)
+        : "",
+      scheduledDeparture: isSet(object.scheduledDeparture)
+        ? globalThis.String(object.scheduledDeparture)
+        : isSet(object.scheduled_departure)
+        ? globalThis.String(object.scheduled_departure)
+        : "",
+      arrivalDelay: isSet(object.arrivalDelay)
+        ? globalThis.Number(object.arrivalDelay)
+        : isSet(object.arrival_delay)
+        ? globalThis.Number(object.arrival_delay)
+        : undefined,
+      departureDelay: isSet(object.departureDelay)
+        ? globalThis.Number(object.departureDelay)
+        : isSet(object.departure_delay)
+        ? globalThis.Number(object.departure_delay)
+        : undefined,
+    };
+  },
+
+  toJSON(message: StopArrival): unknown {
+    const obj: any = {};
+    if (message.tripId !== "") {
+      obj.tripId = message.tripId;
+    }
+    if (message.routeShortName !== "") {
+      obj.routeShortName = message.routeShortName;
+    }
+    if (message.tripHeadsign !== "") {
+      obj.tripHeadsign = message.tripHeadsign;
+    }
+    if (message.directionId !== 0) {
+      obj.directionId = Math.round(message.directionId);
+    }
+    if (message.stopSequence !== 0) {
+      obj.stopSequence = Math.round(message.stopSequence);
+    }
+    if (message.scheduledArrival !== "") {
+      obj.scheduledArrival = message.scheduledArrival;
+    }
+    if (message.scheduledDeparture !== "") {
+      obj.scheduledDeparture = message.scheduledDeparture;
+    }
+    if (message.arrivalDelay !== undefined) {
+      obj.arrivalDelay = Math.round(message.arrivalDelay);
+    }
+    if (message.departureDelay !== undefined) {
+      obj.departureDelay = Math.round(message.departureDelay);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<StopArrival>, I>>(base?: I): StopArrival {
+    return StopArrival.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<StopArrival>, I>>(object: I): StopArrival {
+    const message = createBaseStopArrival();
+    message.tripId = object.tripId ?? "";
+    message.routeShortName = object.routeShortName ?? "";
+    message.tripHeadsign = object.tripHeadsign ?? "";
+    message.directionId = object.directionId ?? 0;
+    message.stopSequence = object.stopSequence ?? 0;
+    message.scheduledArrival = object.scheduledArrival ?? "";
+    message.scheduledDeparture = object.scheduledDeparture ?? "";
+    message.arrivalDelay = object.arrivalDelay ?? undefined;
+    message.departureDelay = object.departureDelay ?? undefined;
     return message;
   },
 };

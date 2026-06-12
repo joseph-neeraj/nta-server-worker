@@ -1,6 +1,7 @@
-import { Hono } from "hono";
+import { Hono, type Context, type Next } from "hono";
 import { jwt } from "hono/jwt";
 import { rateLimiter } from "hono-rate-limiter";
+import { buildErrorResponse } from "./lib/error-response";
 import { handleVehicles } from "./handlers/vehicles";
 import { handleTripFetch } from "./handlers/trip";
 import { handleStops } from "./handlers/stops";
@@ -10,6 +11,17 @@ import { handleInit } from "./handlers/init";
 import { SafeKVStore } from "./lib/kv-rate-limit-store";
 
 const app = new Hono<{ Bindings: Env }>();
+
+// Validates Accept header for endpoints that serve proto or JSON.
+// Applied per-route so /v1/static/version (JSON-only) is unaffected.
+function requireProtoAccept(c: Context<{ Bindings: Env }>, next: Next) {
+	const accept = c.req.header("Accept");
+	const jsonEnabled = c.env.ENABLE_JSON === "true";
+	if (accept !== "application/x-protobuf" && (accept !== "application/json" || !jsonEnabled)) {
+		return buildErrorResponse(406, "Not Acceptable", null, "This endpoint only supports application/x-protobuf or application/json.");
+	}
+	return next();
+}
 
 // Unauthenticated — must be registered before the /v1/* middleware below
 
@@ -43,10 +55,10 @@ app.use("/v1/*", (c, next) =>
 	})(c, next)
 );
 
-app.get("/v1/live/vehicles", (c) => handleVehicles(c.req.raw, c.env, c.executionCtx as ExecutionContext));
-app.get("/v1/live/trips/:trip_id", (c) => handleTripFetch(c.req.raw, c.env, c.executionCtx as ExecutionContext));
-app.get("/v1/live/stops/:stop_id", (c) => handleStopSchedule(c.req.raw, c.env, c.executionCtx as ExecutionContext));
-app.get("/v1/static/stops", (c) => handleStops(c.req.raw, c.env, c.executionCtx as ExecutionContext));
+app.get("/v1/live/vehicles", requireProtoAccept, (c) => handleVehicles(c.req.raw, c.env, c.executionCtx as ExecutionContext));
+app.get("/v1/live/trips/:trip_id", requireProtoAccept, (c) => handleTripFetch(c.req.raw, c.env, c.executionCtx as ExecutionContext));
+app.get("/v1/live/stops/:stop_id", requireProtoAccept, (c) => handleStopSchedule(c.req.raw, c.env, c.executionCtx as ExecutionContext));
+app.get("/v1/static/stops", requireProtoAccept, (c) => handleStops(c.req.raw, c.env, c.executionCtx as ExecutionContext));
 app.get("/v1/static/version", (c) => handleStaticVersion(c.req.raw, c.env));
 
 export default app;

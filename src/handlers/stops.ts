@@ -7,26 +7,19 @@
 // the version key is the only expiry mechanism. Edge TTL is 20 hours.
 
 import { StopsFeed } from "../generated/res/nta";
-import { gzip, gunzip } from "../lib/compress";
+import { gzip } from "../lib/compress";
 import { buildErrorResponse } from "../lib/error-response";
 import { getStaticVersionWithFallback } from "../lib/static-version";
+import { ProtoCache } from "../lib/proto-cache";
+import { StaticDb } from "../lib/static-db";
 
 export async function handleStops(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-	if (request.method !== "GET") {
-		return buildErrorResponse(405, "Method Not Allowed", null, "Only GET requests are supported on this endpoint.");
-	}
-
 	const accept = request.headers.get("Accept");
-	const jsonEnabled = env.ENABLE_JSON === "true";
-
-	if (accept !== "application/x-protobuf" && (accept !== "application/json" || !jsonEnabled)) {
-		return buildErrorResponse(406, "Not Acceptable", null, "This endpoint only supports application/x-protobuf or application/json.");
-	}
 
 	const version = await getStaticVersionWithFallback(env);
-	const cache = caches.default;
+	const protoCache = new ProtoCache(ctx);
 	const cacheKey = new Request(`https://nta-worker-cache/v1/static/stops?v=${encodeURIComponent(version)}`, { method: "GET" });
-	const cachedProto = await cache.match(cacheKey);
+	const cachedProto = await protoCache.match(cacheKey);
 
 	// Proto cache hit — return directly without any decode/re-encode work
 	if (cachedProto && accept !== "application/json") return cachedProto;
@@ -36,23 +29,12 @@ export async function handleStops(request: Request, env: Env, ctx: ExecutionCont
 
 	if (cachedProto) {
 		// JSON requested — decompress cached bytes, then decode
-		const rawBytes = await gunzip(new Uint8Array(await cachedProto.arrayBuffer()));
+		const rawBytes = await protoCache.decompress(cachedProto);
 		feed = StopsFeed.decode(rawBytes);
 	} else {
 		// Cache miss — fetch all stops from D1
-		let rows: Record<string, unknown>[];
-		try {
-			const result = await env.nta_static
-				.prepare(
-					`SELECT stop_id, stop_code, stop_name, stop_desc,
-					        stop_lat, stop_lon, zone_id, stop_url,
-					        location_type, parent_station
-					 FROM stops
-					 ORDER BY stop_id`,
-				)
-				.all();
-			rows = result.results as Record<string, unknown>[];
-		} catch {
+		const rows = await new StaticDb(env.nta_static).getAllStops();
+		if (rows === "error") {
 			return buildErrorResponse(500, "Database error", accept, "Something went wrong. Please try again shortly.");
 		}
 
@@ -76,20 +58,8 @@ export async function handleStops(request: Request, env: Env, ctx: ExecutionCont
 		console.log(`[stops] proto raw=${rawBytes.length}B count=${feed.stops.length}`);
 		compressedProto = await gzip(rawBytes);
 		console.log(`[stops] proto gzip=${compressedProto.length}B (${Math.round((1 - compressedProto.length / rawBytes.length) * 100)}% reduction)`);
-
-		ctx.waitUntil(
-			cache.put(
-				cacheKey,
-				new Response(compressedProto, {
-					headers: {
-						"Content-Type": "application/x-protobuf",
-						"Content-Encoding": "gzip",
-						// 20 hours — version key in the URL is the only expiry mechanism
-						"Cache-Control": "public, max-age=72000",
-					},
-				}),
-			),
-		);
+		// 20 hours — version key in the URL is the only expiry mechanism
+		protoCache.put(cacheKey, compressedProto, 72000);
 	}
 
 	if (accept === "application/json") {

@@ -9,13 +9,8 @@
 // e.g. "0E8CF856-0FA7-4FC6-B420-2423A092BC69/2026-06-11T08:15:43Z".
 
 import { getStaticVersionWithFallback } from "../lib/static-version";
-import { buildErrorResponse } from "../lib/error-response";
 
 export async function handleStaticVersion(request: Request, env: Env): Promise<Response> {
-	if (request.method !== "GET") {
-		return buildErrorResponse(405, "Method Not Allowed", null, "Only GET requests are supported on this endpoint.");
-	}
-
 	const version = await getStaticVersionWithFallback(env);
 
 	return new Response(JSON.stringify({ version }), {

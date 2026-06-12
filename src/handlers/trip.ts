@@ -34,32 +34,25 @@ import { NtaClient, tripUpdateCacheKey } from "../lib/nta-client";
 
 const CACHE_TTL = 65; // seconds
 import { TripDetails } from "../generated/res/nta";
-import { gzip, gunzip } from "../lib/compress";
+import { gzip } from "../lib/compress";
 import { buildErrorResponse } from "../lib/error-response";
+import { ProtoCache } from "../lib/proto-cache";
+import { StaticDb } from "../lib/static-db";
 
 export async function handleTripFetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-	if (request.method !== "GET") {
-		return buildErrorResponse(405, "Method Not Allowed", null, "Only GET requests are supported on this endpoint.");
-	}
-
 	const accept = request.headers.get("Accept");
-	const jsonEnabled = env.ENABLE_JSON === "true";
-
-	if (accept !== "application/x-protobuf" && (accept !== "application/json" || !jsonEnabled)) {
-		return buildErrorResponse(406, "Not Acceptable", null, "This endpoint only supports application/x-protobuf or application/json.");
-	}
 
 	const trip_id = new URL(request.url).pathname.split("/").pop() || "";
 	if (!trip_id) {
 		return buildErrorResponse(400, "Missing trip_id in path", accept, "Please provide a valid trip ID in the request URL.");
 	}
 
-	const cache = caches.default;
+	const protoCache = new ProtoCache(ctx);
 	const cacheKey = new Request(
 		`https://nta-worker-cache/v1/live/trips/${encodeURIComponent(trip_id)}?e=${tripUpdateCacheKey()}`,
 		{ method: "GET" },
 	);
-	const cachedProto = await cache.match(cacheKey);
+	const cachedProto = await protoCache.match(cacheKey);
 
 	if (cachedProto && accept !== "application/json") return cachedProto;
 
@@ -68,12 +61,12 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 
 	if (cachedProto) {
 		// JSON requested — decompress cached bytes, then decode
-		const rawBytes = await gunzip(new Uint8Array(await cachedProto.arrayBuffer()));
+		const rawBytes = await protoCache.decompress(cachedProto);
 		details = TripDetails.decode(rawBytes);
 	} else {
 		// Cache miss — fetch from D1 and NTA in parallel
 		const [dbResult, delayUpdates] = await Promise.all([
-			fetchFromDb(trip_id, env),
+			new StaticDb(env.nta_static).getTrip(trip_id),
 			fetchDelayUpdates(trip_id, env, ctx),
 		]);
 
@@ -140,19 +133,8 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 		console.log(`[trip:${trip_id}] proto raw=${rawBytes.length}B`);
 		compressedProto = await gzip(rawBytes);
 		console.log(`[trip:${trip_id}] proto gzip=${compressedProto.length}B (${Math.round((1 - compressedProto.length / rawBytes.length) * 100)}% reduction)`);
-		ctx.waitUntil(
-			cache.put(
-				cacheKey,
-				new Response(compressedProto, {
-					headers: {
-						"Content-Type": "application/x-protobuf",
-						"Content-Encoding": "gzip",
-						// make sure the cache expires a little before the api cache, so fresh data is always available
-					"Cache-Control": `public, max-age=${CACHE_TTL - 2}`,
-					},
-				}),
-			),
-		);
+		// make sure the cache expires a little before the api cache, so fresh data is always available
+		protoCache.put(cacheKey, compressedProto, CACHE_TTL - 2);
 	}
 
 	if (accept === "application/json") {
@@ -169,62 +151,6 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
-
-type DbResult = {
-	tripRow: Record<string, unknown>;
-	stopRows: Record<string, unknown>[];
-	shapeRows: { shape_pt_lat: number; shape_pt_lon: number; shape_dist_traveled: number | null }[];
-};
-
-async function fetchFromDb(trip_id: string, env: Env): Promise<DbResult | null | "error"> {
-	try {
-		const [tripResult, stopsResult, shapeResult] = await env.nta_static.batch([
-			env.nta_static
-				.prepare(
-					`SELECT t.trip_id, t.trip_headsign, t.trip_short_name, t.direction_id, t.block_id, t.shape_id,
-					        r.route_short_name, r.route_long_name, r.route_type, r.route_color, r.route_text_color,
-					        a.agency_name, a.agency_url
-					 FROM trips t
-					 JOIN routes r ON t.route_id = r.route_id
-					 JOIN agency a ON r.agency_id = a.agency_id
-					 WHERE t.trip_id = ?`,
-				)
-				.bind(trip_id),
-			env.nta_static
-				.prepare(
-					`SELECT st.stop_sequence, st.stop_id, s.stop_code, s.stop_name,
-					        s.stop_lat, s.stop_lon,
-					        st.arrival_time, st.departure_time, st.stop_headsign,
-					        st.pickup_type, st.drop_off_type, st.timepoint
-					 FROM stop_times st
-					 JOIN stops s ON st.stop_id = s.stop_id
-					 WHERE st.trip_id = ?
-					 ORDER BY st.stop_sequence`,
-				)
-				.bind(trip_id),
-			env.nta_static
-				.prepare(
-					`SELECT sh.shape_pt_lat, sh.shape_pt_lon, sh.shape_dist_traveled
-					 FROM trips t
-					 JOIN shapes sh ON t.shape_id = sh.shape_id
-					 WHERE t.trip_id = ?
-					 ORDER BY sh.shape_pt_sequence`,
-				)
-				.bind(trip_id),
-		]);
-
-		const tripRow = (tripResult.results[0] as Record<string, unknown>) ?? null;
-		if (!tripRow) return null;
-
-		return {
-			tripRow,
-			stopRows: stopsResult.results as Record<string, unknown>[],
-			shapeRows: shapeResult.results as DbResult["shapeRows"],
-		};
-	} catch {
-		return "error";
-	}
-}
 
 // Fetches TripUpdates and returns per-stop delay data for one trip.
 // Returns null if the feed is unavailable or the trip has no entry.

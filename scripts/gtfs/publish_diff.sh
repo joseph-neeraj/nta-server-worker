@@ -13,8 +13,8 @@ export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
 nvm use 22 --silent
 
-export CLOUDFLARE_ACCOUNT_ID=""
-export CLOUDFLARE_API_TOKEN=""
+export CLOUDFLARE_ACCOUNT_ID="dummy value"
+export CLOUDFLARE_API_TOKEN="dummy value"
 
 # Fail fast if the placeholders haven't been replaced with real values
 if [[ "$CLOUDFLARE_ACCOUNT_ID" == "dummy value" || "$CLOUDFLARE_API_TOKEN" == "dummy value" ]]; then

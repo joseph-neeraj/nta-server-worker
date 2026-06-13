@@ -284,3 +284,60 @@ describe("/v1/* — token rate limiting", () => {
 	});
 });
 
+// ---------------------------------------------------------------------------
+// /v1/* — route wiring
+//
+// For each endpoint, two things are verified:
+//   1. requireProtoAccept is active — a request without a supported Accept
+//      header (but with a valid JWT) gets 406 before reaching the handler.
+//   2. The route is wired — a request with Accept: application/x-protobuf
+//      passes the Accept check and reaches the handler (not a 404).
+//      The handler itself may return any status; 404 is the only value that
+//      would indicate the route is missing entirely.
+//
+// /v1/static/version is deliberately excluded: it is JSON-only and does not
+// use requireProtoAccept — it is covered by the JWT tests above.
+// ---------------------------------------------------------------------------
+
+describe("/v1/* — route wiring", async () => {
+	const token = await makeToken();
+	const validAuth = `Bearer ${token}`;
+
+	// Each entry: [method, path, description]
+	const routes: [string, string, string][] = [
+		["GET", "/v1/live/vehicles",           "vehicles"],
+		["GET", "/v1/live/trips/trip-123",     "trips/:trip_id"],
+		["GET", "/v1/live/stops/stop-456",     "stops/:stop_id"],
+		["GET", "/v1/static/stops",            "static stops"],
+	];
+
+	for (const [method, path, label] of routes) {
+		it(`${label}: no Accept header → 406 (requireProtoAccept)`, async () => {
+			const ctx = createExecutionContext();
+			const res = await worker.fetch(
+				new Request(`http://worker.example${path}`, {
+					method,
+					headers: { Authorization: validAuth },
+					// no Accept header — fails requireProtoAccept
+				}),
+				env, ctx,
+			);
+			await waitOnExecutionContext(ctx);
+			expect(res.status).toBe(406);
+		});
+
+		it(`${label}: Accept: application/x-protobuf → route is wired (not 404)`, async () => {
+			const ctx = createExecutionContext();
+			const res = await worker.fetch(
+				new Request(`http://worker.example${path}`, {
+					method,
+					headers: { Authorization: validAuth, Accept: "application/x-protobuf" },
+				}),
+				env, ctx,
+			);
+			await waitOnExecutionContext(ctx);
+			expect(res.status).not.toBe(404);
+		});
+	}
+});
+

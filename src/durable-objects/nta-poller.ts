@@ -108,7 +108,8 @@ export class NtaPollerDO extends DurableObject<Env> {
 	}
 
 	private async publish(key: string, bytes: Uint8Array, nextUpdateAt: number): Promise<void> {
-		const metadata: FeedMetadata = { nextUpdateAt };
+		// lastUpdateAt = now, the instant this successful poll's bytes are written.
+		const metadata: FeedMetadata = { nextUpdateAt, lastUpdateAt: Date.now() };
 		await this.env.RT_FEED_KV.put(key, bytes, { expirationTtl: FEED_KV_TTL, metadata });
 		console.log(`[poller] published ${key} (${bytes.length}B) nextUpdateAt=${nextUpdateAt}`);
 	}

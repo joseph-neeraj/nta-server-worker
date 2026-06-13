@@ -13,19 +13,43 @@ import { gunzip } from "./compress";
 /** Header that advertises the epoch-ms instant the live data will next refresh. */
 export const NEXT_UPDATE_HEADER = "X-Next-Update-At";
 
-/** Header fragment for a final Response. Empty when nextUpdateAt is unknown (cold start). */
-export function nextUpdateHeaders(nextUpdateAt: number | null): Record<string, string> {
-	if (nextUpdateAt == null) return {};
-	return {
-		[NEXT_UPDATE_HEADER]: String(nextUpdateAt),
-		// Let browser clients read the custom header from cross-origin responses.
-		"Access-Control-Expose-Headers": NEXT_UPDATE_HEADER,
-	};
+/** Header that carries the epoch-ms instant of the last successful poll behind this data. */
+export const LAST_UPDATE_HEADER = "X-Last-Update-At";
+
+/**
+ * Header fragment for a final Response carrying the freshness hints. Each header
+ * is omitted when its value is unknown (cold start, before the poller stamps it).
+ * A single Access-Control-Expose-Headers lists whichever headers are present so
+ * the two spreads don't clobber each other on a cross-origin response.
+ */
+export function feedHeaders(nextUpdateAt: number | null, lastUpdateAt: number | null): Record<string, string> {
+	const headers: Record<string, string> = {};
+	const exposed: string[] = [];
+	if (nextUpdateAt != null) {
+		headers[NEXT_UPDATE_HEADER] = String(nextUpdateAt);
+		exposed.push(NEXT_UPDATE_HEADER);
+	}
+	if (lastUpdateAt != null) {
+		headers[LAST_UPDATE_HEADER] = String(lastUpdateAt);
+		exposed.push(LAST_UPDATE_HEADER);
+	}
+	// Let browser clients read the custom headers from cross-origin responses.
+	if (exposed.length) headers["Access-Control-Expose-Headers"] = exposed.join(", ");
+	return headers;
 }
 
 /** Parses nextUpdateAt back off a cached Response; null if absent or malformed. */
 export function readNextUpdateAt(res: Response): number | null {
-	const raw = res.headers.get(NEXT_UPDATE_HEADER);
+	return readEpochHeader(res, NEXT_UPDATE_HEADER);
+}
+
+/** Parses lastUpdateAt back off a cached Response; null if absent or malformed. */
+export function readLastUpdateAt(res: Response): number | null {
+	return readEpochHeader(res, LAST_UPDATE_HEADER);
+}
+
+function readEpochHeader(res: Response, name: string): number | null {
+	const raw = res.headers.get(name);
 	if (raw == null) return null;
 	const n = Number(raw);
 	return Number.isFinite(n) ? n : null;
@@ -68,16 +92,17 @@ export class ProtoCache {
 	 * Stores compressed proto bytes in the edge cache via ctx.waitUntil.
 	 * Fire-and-forget — the current response is not blocked by this write.
 	 *
-	 * nextUpdateAt (epoch ms, optional) is baked into the cached Response as the
-	 * X-Next-Update-At header so subsequent cache hits — which return the cached
-	 * Response verbatim — still advertise the next refresh time.
+	 * nextUpdateAt/lastUpdateAt (epoch ms, optional) are baked into the cached
+	 * Response as the X-Next-Update-At / X-Last-Update-At headers so subsequent
+	 * cache hits — which return the cached Response verbatim — still carry the
+	 * freshness hints.
 	 */
-	put(key: Request, compressedBytes: Uint8Array, ttl: number, nextUpdateAt?: number | null): void {
+	put(key: Request, compressedBytes: Uint8Array, ttl: number, nextUpdateAt?: number | null, lastUpdateAt?: number | null): void {
 		const headers: Record<string, string> = {
 			"Content-Type": "application/x-protobuf",
 			"Content-Encoding": "gzip",
 			"Cache-Control": `public, max-age=${ttl}`,
-			...nextUpdateHeaders(nextUpdateAt ?? null),
+			...feedHeaders(nextUpdateAt ?? null, lastUpdateAt ?? null),
 		};
 		this.ctx.waitUntil(
 			this.cache.put(key, new Response(compressedBytes, { headers })),

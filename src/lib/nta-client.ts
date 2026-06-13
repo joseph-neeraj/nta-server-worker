@@ -18,13 +18,13 @@
 import { FeedMessage } from "../generated/res/gtfs-realtime";
 
 /** Metadata the poller stores alongside each feed in KV. */
-export type FeedMetadata = { nextUpdateAt: number };
+export type FeedMetadata = { nextUpdateAt: number; lastUpdateAt: number };
 
 /**
- * A decoded feed plus the epoch-ms instant the next refresh is expected.
- * nextUpdateAt is null when the poller hasn't stamped metadata yet (cold start).
+ * A decoded feed plus the poller's metadata (next/last update instants).
+ * metadata is null when the poller hasn't stamped it yet (cold start).
  */
-export type FeedResult = { feed: FeedMessage; nextUpdateAt: number | null };
+export type FeedResult = { feed: FeedMessage; metadata: FeedMetadata | null };
 
 /** Slot timing — shared with NtaPollerDO so its schedule and the cache keys agree. */
 export const SLOT_MS = 32_000;   // 32s per slot
@@ -84,15 +84,20 @@ export class NtaClient {
 		return this.readFeed(FEED_KV_TRIPUPDATES);
 	}
 
-	// Reads the latest feed bytes (and the poller's nextUpdateAt metadata) from KV,
-	// then decodes the bytes. Returns null if the key isn't populated yet (e.g. right
-	// after first deploy), so handlers' graceful-degradation paths still apply.
+	// Reads the latest feed bytes (and the poller's metadata) from KV, then decodes
+	// the bytes. Returns null if the key isn't populated yet (e.g. right after first
+	// deploy), so handlers' graceful-degradation paths still apply.
 	private async readFeed(key: string): Promise<FeedResult | null> {
 		const { value, metadata } = await this.env.RT_FEED_KV.getWithMetadata<FeedMetadata>(key, "arrayBuffer");
 		if (!value) return null;
 		return {
 			feed: FeedMessage.decode(new Uint8Array(value)),
-			nextUpdateAt: clampNextUpdateAt(metadata?.nextUpdateAt),
+			// null until the poller publishes metadata; otherwise clamp nextUpdateAt so a
+			// stalled poller can't advertise a past instant (lastUpdateAt needs no clamp —
+			// it's a real past timestamp).
+			metadata: metadata
+				? { nextUpdateAt: clampNextUpdateAt(metadata.nextUpdateAt), lastUpdateAt: metadata.lastUpdateAt }
+				: null,
 		};
 	}
 }
@@ -100,11 +105,9 @@ export class NtaClient {
 /**
  * Worker-side guard for the advertised next-update time. If the poller stalled,
  * the stored nextUpdateAt can be in the past — clamp it to now + one slot so
- * clients retry soon (but not in a tight loop). Returns null if metadata is absent
- * (cold start / pre-metadata data) so handlers simply omit the header.
+ * clients retry soon (but not in a tight loop).
  */
-function clampNextUpdateAt(nextUpdateAt: number | undefined): number | null {
-	if (nextUpdateAt == null) return null;
+function clampNextUpdateAt(nextUpdateAt: number): number {
 	const floor = Date.now() + SLOT_MS;
 	return Math.max(nextUpdateAt, floor);
 }

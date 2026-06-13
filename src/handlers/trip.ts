@@ -36,7 +36,7 @@ const CACHE_TTL = 65; // seconds
 import { TripDetails } from "../generated/res/nta";
 import { gzip } from "../lib/compress";
 import { buildErrorResponse } from "../lib/error-response";
-import { ProtoCache, nextUpdateHeaders, readNextUpdateAt, cacheMaxAge } from "../lib/proto-cache";
+import { ProtoCache, feedHeaders, readNextUpdateAt, readLastUpdateAt, cacheMaxAge } from "../lib/proto-cache";
 import { StaticDb } from "../lib/static-db";
 
 export async function handleTripFetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -58,14 +58,16 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 
 	let details: TripDetails;
 	let compressedProto: Uint8Array | undefined;
-	// Epoch-ms instant the live delay data next refreshes; advertised via X-Next-Update-At.
+	// Epoch-ms instants advertised via X-Next-Update-At / X-Last-Update-At.
 	let nextUpdateAt: number | null = null;
+	let lastUpdateAt: number | null = null;
 
 	if (cachedProto) {
 		// JSON requested — decompress cached bytes, then decode
 		const rawBytes = await protoCache.decompress(cachedProto);
 		details = TripDetails.decode(rawBytes);
 		nextUpdateAt = readNextUpdateAt(cachedProto);
+		lastUpdateAt = readLastUpdateAt(cachedProto);
 	} else {
 		// Cache miss — fetch from D1 and NTA in parallel
 		const [dbResult, delayUpdates] = await Promise.all([
@@ -81,6 +83,7 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 		}
 
 		nextUpdateAt = delayUpdates?.nextUpdateAt ?? null;
+		lastUpdateAt = delayUpdates?.lastUpdateAt ?? null;
 		const { tripRow, stopRows, shapeRows } = dbResult;
 
 		console.log(`[trip:${trip_id}] delayUpdates=${delayUpdates == null ? "null" : `timestamp=${delayUpdates.timestamp}, stops=${delayUpdates.stops.length}`}`);
@@ -139,7 +142,7 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 		console.log(`[trip:${trip_id}] proto gzip=${compressedProto.length}B (${Math.round((1 - compressedProto.length / rawBytes.length) * 100)}% reduction)`);
 		// Edge entry lifetime tracks the next refresh; the rotating epoch key (?e=) is
 		// what actually delivers fresh data, so no extra early-expiry margin is needed.
-		protoCache.put(cacheKey, compressedProto, cacheMaxAge(nextUpdateAt, CACHE_TTL), nextUpdateAt);
+		protoCache.put(cacheKey, compressedProto, cacheMaxAge(nextUpdateAt, CACHE_TTL), nextUpdateAt, lastUpdateAt);
 	}
 
 	// Align HTTP freshness with the advertised next refresh (fixed TTL only on cold start).
@@ -147,14 +150,14 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 
 	if (accept === "application/json") {
 		return new Response(JSON.stringify(TripDetails.toJSON(details)), {
-			headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${maxAge}`, ...nextUpdateHeaders(nextUpdateAt) },
+			headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${maxAge}`, ...feedHeaders(nextUpdateAt, lastUpdateAt) },
 		});
 	}
 
 	// compressedProto is always set on the cache-miss path; the fallback guards against type errors only
 	const bytes = compressedProto ?? await gzip(TripDetails.encode(details).finish());
 	return new Response(bytes, {
-		headers: { "Content-Type": "application/x-protobuf", "Content-Encoding": "gzip", "Cache-Control": `public, max-age=${maxAge}`, ...nextUpdateHeaders(nextUpdateAt) },
+		headers: { "Content-Type": "application/x-protobuf", "Content-Encoding": "gzip", "Cache-Control": `public, max-age=${maxAge}`, ...feedHeaders(nextUpdateAt, lastUpdateAt) },
 	});
 }
 
@@ -165,18 +168,19 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 async function fetchDelayUpdates(
 	trip_id: string,
 	env: Env,
-): Promise<{ timestamp: number | null; nextUpdateAt: number | null; stops: { stopId: string | null; arrivalDelay: number | null; departureDelay: number | null }[] } | null> {
+): Promise<{ timestamp: number | null; nextUpdateAt: number | null; lastUpdateAt: number | null; stops: { stopId: string | null; arrivalDelay: number | null; departureDelay: number | null }[] } | null> {
 	const result = await new NtaClient(env).fetchTripUpdates();
 	if (!result) return null;
 	const feed = result.feed;
 
-	// A trip may legitimately have no live entry yet — still surface nextUpdateAt
+	// A trip may legitimately have no live entry yet — still surface the update hints
 	// (with empty stops) so the client knows when the next feed publish is due.
 	const entity = feed.entity.find((e) => e.tripUpdate?.trip?.tripId === trip_id);
 
 	return {
 		timestamp: entity?.tripUpdate?.timestamp ?? null,
-		nextUpdateAt: result.nextUpdateAt,
+		nextUpdateAt: result.metadata?.nextUpdateAt ?? null,
+		lastUpdateAt: result.metadata?.lastUpdateAt ?? null,
 		stops: (entity?.tripUpdate?.stopTimeUpdate ?? []).map((stu) => ({
 			stopId: stu.stopId ?? null,
 			arrivalDelay: stu.arrival?.delay ?? null,

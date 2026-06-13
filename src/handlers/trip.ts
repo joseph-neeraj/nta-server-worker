@@ -36,7 +36,7 @@ const CACHE_TTL = 65; // seconds
 import { TripDetails } from "../generated/res/nta";
 import { gzip } from "../lib/compress";
 import { buildErrorResponse } from "../lib/error-response";
-import { ProtoCache, nextUpdateHeaders, readNextUpdateAt } from "../lib/proto-cache";
+import { ProtoCache, nextUpdateHeaders, readNextUpdateAt, cacheMaxAge } from "../lib/proto-cache";
 import { StaticDb } from "../lib/static-db";
 
 export async function handleTripFetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -137,20 +137,24 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 		console.log(`[trip:${trip_id}] proto raw=${rawBytes.length}B`);
 		compressedProto = await gzip(rawBytes);
 		console.log(`[trip:${trip_id}] proto gzip=${compressedProto.length}B (${Math.round((1 - compressedProto.length / rawBytes.length) * 100)}% reduction)`);
-		// make sure the cache expires a little before the api cache, so fresh data is always available
-		protoCache.put(cacheKey, compressedProto, CACHE_TTL - 2, nextUpdateAt);
+		// Edge entry lifetime tracks the next refresh; the rotating epoch key (?e=) is
+		// what actually delivers fresh data, so no extra early-expiry margin is needed.
+		protoCache.put(cacheKey, compressedProto, cacheMaxAge(nextUpdateAt, CACHE_TTL), nextUpdateAt);
 	}
+
+	// Align HTTP freshness with the advertised next refresh (fixed TTL only on cold start).
+	const maxAge = cacheMaxAge(nextUpdateAt, CACHE_TTL);
 
 	if (accept === "application/json") {
 		return new Response(JSON.stringify(TripDetails.toJSON(details)), {
-			headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${CACHE_TTL}`, ...nextUpdateHeaders(nextUpdateAt) },
+			headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${maxAge}`, ...nextUpdateHeaders(nextUpdateAt) },
 		});
 	}
 
 	// compressedProto is always set on the cache-miss path; the fallback guards against type errors only
 	const bytes = compressedProto ?? await gzip(TripDetails.encode(details).finish());
 	return new Response(bytes, {
-		headers: { "Content-Type": "application/x-protobuf", "Content-Encoding": "gzip", "Cache-Control": `public, max-age=${CACHE_TTL}`, ...nextUpdateHeaders(nextUpdateAt) },
+		headers: { "Content-Type": "application/x-protobuf", "Content-Encoding": "gzip", "Cache-Control": `public, max-age=${maxAge}`, ...nextUpdateHeaders(nextUpdateAt) },
 	});
 }
 

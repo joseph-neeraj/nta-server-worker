@@ -31,6 +31,22 @@ export function readNextUpdateAt(res: Response): number | null {
 	return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Cache-Control max-age (whole seconds) that aligns with nextUpdateAt, so the
+ * HTTP freshness window and the X-Next-Update-At hint always agree. Clamped to
+ * ≥1 so we never emit max-age=0. Falls back to `fallback` when nextUpdateAt is
+ * unknown (cold start, before the poller has stamped metadata).
+ *
+ * Note: max-age is relative to receipt, but it's computed here from the absolute
+ * nextUpdateAt at store time. On an edge cache hit the stored max-age stays correct
+ * because Cloudflare adds an `Age` header, and downstream freshness = max-age − Age,
+ * which resolves back to (nextUpdateAt − now).
+ */
+export function cacheMaxAge(nextUpdateAt: number | null, fallback: number): number {
+	if (nextUpdateAt == null) return fallback;
+	return Math.max(1, Math.ceil((nextUpdateAt - Date.now()) / 1000));
+}
+
 export class ProtoCache {
 	private cache: Cache;
 

@@ -8,7 +8,7 @@ A Cloudflare Worker that proxies [NTA GTFS-Realtime](https://developer.nationalt
 
 | Layer | What it does |
 |---|---|
-| **Live vehicles** (`GET /v1/live/vehicles`) | All active vehicles with real-time positions, enriched with route and headsign from static GTFS. Cached at the CF edge per 40 s slot. |
+| **Live vehicles** (`GET /v1/live/vehicles`) | All active vehicles with real-time positions, enriched with route and headsign from static GTFS. Cached at the CF edge per 32 s slot. |
 | **Trip details** (`GET /v1/live/trips/:trip_id`) | Full trip info: static route/stops/shape plus real-time stop delays. Cached per trip for ~65 s. |
 | **Stop schedule** (`GET /v1/live/stops/:stop_id`) | Today's scheduled arrivals at a stop, enriched with real-time delays. Cached per stop for 2 min. |
 | **Static stops** (`GET /v1/static/stops`) | All stops from the static feed. Cached until the static data version changes. |
@@ -31,8 +31,8 @@ So we need **one single thing, globally, that talks to NTA** — and everything 
 
 ```mermaid
 flowchart LR
-  CRON["Cron (every 1 min)"] -->|keep alive| DO
-  DO["NtaPollerDO<br/>(one global instance)<br/>wakes every 40s"] -->|fetch| NTA["NTA real-time API"]
+  CRON["Cron (every 5 min)"] -->|keep alive| DO
+  DO["NtaPollerDO<br/>(one global instance)<br/>wakes every 32s"] -->|fetch| NTA["NTA real-time API"]
   DO -->|write feed bytes| KV["RT_FEED_KV"]
   USER["App user"] -->|GET /v1/live/*| W["Worker (any colo)"]
   W -->|read feed bytes| KV
@@ -40,31 +40,74 @@ flowchart LR
   W -->|response| USER
 ```
 
-**The poller** (`NtaPollerDO`, a [Durable Object](https://developers.cloudflare.com/durable-objects/)) is a special kind of Worker that exists as exactly **one instance in the entire world**. It wakes itself up every 40 seconds (using an "alarm"), fetches the latest feed from NTA, and saves the raw bytes into a KV store (`RT_FEED_KV`). A once-a-minute cron trigger acts as a watchdog that re-arms the alarm if it ever stops.
+**The poller** (`NtaPollerDO`, a [Durable Object](https://developers.cloudflare.com/durable-objects/)) is a special kind of Worker that exists as exactly **one instance in the entire world**. It wakes itself up every 32 seconds (using an "alarm"), fetches the latest feed from NTA, and saves the raw bytes into a KV store (`RT_FEED_KV`). A cron trigger that fires every 5 minutes acts as a watchdog that re-arms the alarm if it ever stops.
 
 **The request handlers** never call NTA. When an app user hits `/v1/live/*`, the Worker simply reads the latest bytes from `RT_FEED_KV`, enriches them with schedule data from D1, and responds. This keeps NTA traffic to exactly one set of calls globally, no matter how many users or data centres are involved.
 
 ### The polling schedule
 
-The poller runs on a repeating **160-second cycle, split into four 40-second slots**, alternating the two API keys:
+The poller runs on a repeating **128-second cycle, split into four 32-second slots**, alternating the two API keys:
 
 | Slot | Time | NTA call | API key |
 |---|---|---|---|
 | 0 | 0 s | `/Vehicles` | KEY&nbsp;1 |
-| 1 | 40 s | `/Vehicles` | KEY&nbsp;2 |
-| 2 | 80 s | `/Vehicles` | KEY&nbsp;1 |
-| 3 | 120 s | `/TripUpdates` | KEY&nbsp;2 |
+| 1 | 32 s | `/Vehicles` | KEY&nbsp;2 |
+| 2 | 64 s | `/Vehicles` | KEY&nbsp;1 |
+| 3 | 96 s | `/TripUpdates` | KEY&nbsp;2 |
 
-Each key is used once every 80 seconds — a comfortable **20-second margin** over NTA's 60-second limit. Vehicle positions refresh every 40 s; trip delays every 160 s.
+Each key is used once every 64 seconds — a **4-second nominal margin** over NTA's 60-second limit (the real margin is larger, since HTTP dispatch latency stacks on top of the wall-clock reuse interval). Vehicle positions refresh every 32 s (with one 64 s gap per cycle, because slot 3 fetches trip updates instead); trip delays refresh every 128 s.
+
+### Sequence of events
+
+**On first deploy (cold start):**
+
+1. `wrangler deploy` uploads the Worker and registers the `NtaPollerDO` class + cron. Nothing polls yet — `RT_FEED_KV` is empty.
+2. Within 5 minutes the cron fires and calls `NtaPollerDO.start()`, which sets the first alarm. (Deploying does **not** start the poller; only the cron does.)
+3. The alarm fires on the next 32 s boundary and the self-sustaining loop begins.
+
+**Steady-state poll (every 32 s):**
+
+1. The platform invokes `NtaPollerDO.alarm()`.
+2. `poll()` works out the current slot (0–3) and fetches the matching NTA feed with the matching key, with a **10 s fetch timeout**.
+3. On success it writes the raw proto bytes to `RT_FEED_KV` (key `feed:vehicles` or `feed:tripupdates`) with a **600 s TTL**. On failure it logs and skips — the previous bytes stay live until their TTL.
+4. In a `finally` block it schedules the next alarm for the next 32 s boundary. This self-reschedule is what keeps the loop alive; the cron is only a fallback.
+
+**Steady-state user request (`GET /v1/live/*`):**
+
+1. The Worker (in whatever colo serves the user) checks its local **edge cache** first. On a hit, it returns the cached gzipped protobuf immediately — no KV or D1 work.
+2. On a miss, it reads the latest feed bytes from `RT_FEED_KV`, enriches them with schedule data from D1, gzips the result, stores it in the edge cache, and returns it.
+3. If `RT_FEED_KV` is still empty (pre-first-poll), it returns a graceful "data unavailable" response instead of an error.
 
 ### Caching layers
 
-1. **`RT_FEED_KV`** — the raw NTA feeds, refreshed by the poller. Shared by the whole fleet.
-2. **Edge cache** — each handler caches its final enriched response (protobuf, gzipped) at the local data centre, so repeat requests in the same slot skip the D1 work entirely.
+1. **`RT_FEED_KV`** — the raw NTA feeds, refreshed by the poller (600 s TTL, overwritten every cycle). Shared by the whole fleet.
+2. **Edge cache** — each handler caches its final enriched response (protobuf, gzipped) at the local data centre, so repeat requests within the cache window skip the D1 work entirely.
+
+### Timeouts &amp; cache TTLs reference
+
+Every tunable timeout and cache lifetime in one place:
+
+| Setting | Value | Where | Purpose |
+|---|---|---|---|
+| Poller slot | 32 s | `SLOT_MS` (`nta-client.ts`) | How often the poller wakes |
+| Poller cycle | 128 s | `SLOT_MS × CYCLE_SLOTS` | Full Vehicles×3 + TripUpdates×1 rotation |
+| Token reuse interval | 64 s | derived | Each API key reused every 2 slots (4 s margin) |
+| NTA fetch timeout | 10 s | `FETCH_TIMEOUT_MS` (`nta-poller.ts`) | Aborts a slow NTA subrequest |
+| `RT_FEED_KV` TTL | 600 s | `FEED_KV_TTL` (`nta-poller.ts`) | Raw feed bytes survive transient poll failures |
+| Cron watchdog | every 5 min | `triggers.crons` (`wrangler.jsonc`) | Re-arms the alarm only if missing |
+| Vehicles edge cache | 34 s | `VEHICLE_CACHE_TTL` (`nta-client.ts`) | `/v1/live/vehicles` response cache |
+| Trip edge cache | 65 s | `CACHE_TTL` (`trip.ts`) | `/v1/live/trips/:id` response cache |
+| Stop schedule edge cache | 120 s | `CACHE_TTL` (`stop-schedule.ts`) | `/v1/live/stops/:id` response cache |
+| Static stops cache | 300 s | `max-age` (`stops.ts`) | `/v1/static/stops` response cache |
+| Static version cache | 60 s | `max-age` (`static-version.ts`) | `/v1/static/version` response cache |
+| HMAC replay window | 30 s | `init.ts` | Rejects `/init` requests with stale timestamps |
+| JWT expiry | 3600 s (1 h) | `init.ts` | Session token lifetime |
+| `/init` rate limit | 120 / h / IP | `index.ts` | Per-IP cap on token issuance |
+| `/v1/*` rate limit | 600 / 5 min / token | `index.ts` | Per-token request cap |
 
 ### Cold start
 
-Right after a fresh deploy, `RT_FEED_KV` is empty until the first poll runs (up to ~1 minute, when the cron first fires). During that brief window the live endpoints return a graceful "data unavailable" response rather than an error.
+Right after a fresh deploy, `RT_FEED_KV` is empty until the first poll runs (up to ~5 minutes, when the cron first fires and bootstraps the alarm). During that brief window the live endpoints return a graceful "data unavailable" response rather than an error.
 
 ---
 

@@ -34,8 +34,28 @@
 			"binding": "STATIC_META_KV",
 			"id": "c05825d3eba34358a70c2cb0aab15f28",
 			"remote": true
+		},
+		{
+			"binding": "RT_FEED_KV",
+			"id": "a80dc9efa5494d7682c6fec7456a3bb3",
+			"remote": true
 		}
 	],
+	"durable_objects": {
+		"bindings": [
+			{ "name": "NTA_POLLER", "class_name": "NtaPollerDO" }
+		]
+	},
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["NtaPollerDO"] }
+	],
+	// Watchdog: re-arms the poller's self-scheduling alarm if it's ever missing.
+	// The poller's real cadence is the DO's own 40s alarm — this cron does NOT
+	// drive polling. Every 5 min (288/day) is plenty just to guarantee the alarm
+	// exists; keeping it infrequent avoids needless invocations.
+	"triggers": {
+		"crons": ["*/5 * * * *"]
+	},
 	"env": {
 		/**
 		 * Staging environment — deploys as nta-server-worker-staging.<subdomain>.workers.dev
@@ -66,8 +86,17 @@
 					"binding": "STATIC_META_KV",
 					"id": "c05825d3eba34358a70c2cb0aab15f28",
 					"remote": true
+				},
+				{
+					"binding": "RT_FEED_KV",
+					"id": "a80dc9efa5494d7682c6fec7456a3bb3",
+					"remote": true
 				}
 			]
+			// NOTE: No NTA_POLLER Durable Object or cron on staging — it shares
+			// production's NTA API keys, and a second poller would double the call
+			// rate and risk NTA blocking us. Staging reads whatever production's
+			// poller has already written to the shared RT_FEED_KV.
 		}
 	}
 	/**

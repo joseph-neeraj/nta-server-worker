@@ -67,7 +67,7 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 		// Cache miss — fetch from D1 and NTA in parallel
 		const [dbResult, delayUpdates] = await Promise.all([
 			new StaticDb(env.nta_static).getTrip(trip_id),
-			fetchDelayUpdates(trip_id, env, ctx),
+			fetchDelayUpdates(trip_id, env),
 		]);
 
 		if (dbResult === null) {
@@ -157,9 +157,8 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 async function fetchDelayUpdates(
 	trip_id: string,
 	env: Env,
-	ctx: ExecutionContext,
 ): Promise<{ timestamp: number | null; stops: { stopId: string | null; arrivalDelay: number | null; departureDelay: number | null }[] } | null> {
-	const feed = await new NtaClient(env, ctx).fetchTripUpdates();
+	const feed = await new NtaClient(env).fetchTripUpdates();
 	if (!feed) return null;
 
 	const entity = feed.entity.find((e) => e.tripUpdate?.trip?.tripId === trip_id);

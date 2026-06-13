@@ -32,7 +32,7 @@ export async function handleVehicles(request: Request, env: Env, ctx: ExecutionC
 		enriched = VehiclesFeed.decode(rawBytes);
 	} else {
 		// Cache miss — fetch from NTA and enrich with D1 static data
-		const feed = await new NtaClient(env, ctx).fetchVehicles();
+		const feed = await new NtaClient(env).fetchVehicles();
 		if (!feed) return buildErrorResponse(502, "NTA Server down", accept, "NTA Server is down. Try again in a few minutes");
 
 		// Collect all trip_ids so we can fetch enrichment data in a single D1 query

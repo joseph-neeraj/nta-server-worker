@@ -98,9 +98,9 @@ export interface StopArrival {
   tripHeadsign: string;
   directionId: number;
   stopSequence: number;
-  /** HH:MM:SS */
+  /** HH:MM:SS; hours may exceed 23 for post-midnight GTFS trips */
   scheduledArrival: string;
-  /** HH:MM:SS */
+  /** HH:MM:SS; hours may exceed 23 for post-midnight GTFS trips */
   scheduledDeparture: string;
   /** e.g. "7778" — operator identifier */
   agencyId: string;
@@ -109,7 +109,15 @@ export interface StopArrival {
    * Absent means no live data for this trip at this stop.
    */
   arrivalDelay?: number | undefined;
-  departureDelay?: number | undefined;
+  departureDelay?:
+    | number
+    | undefined;
+  /**
+   * POSIX seconds derived from the GTFS time + Dublin local midnight of the service date.
+   * Use these instead of parsing the string fields when you need wall-clock comparisons.
+   */
+  scheduledArrivalUtc?: number | undefined;
+  scheduledDepartureUtc?: number | undefined;
 }
 
 /**
@@ -1166,6 +1174,8 @@ function createBaseStopArrival(): StopArrival {
     agencyId: "",
     arrivalDelay: undefined,
     departureDelay: undefined,
+    scheduledArrivalUtc: undefined,
+    scheduledDepartureUtc: undefined,
   };
 }
 
@@ -1200,6 +1210,12 @@ export const StopArrival: MessageFns<StopArrival> = {
     }
     if (message.departureDelay !== undefined) {
       writer.uint32(80).int32(message.departureDelay);
+    }
+    if (message.scheduledArrivalUtc !== undefined) {
+      writer.uint32(88).uint64(message.scheduledArrivalUtc);
+    }
+    if (message.scheduledDepartureUtc !== undefined) {
+      writer.uint32(96).uint64(message.scheduledDepartureUtc);
     }
     return writer;
   },
@@ -1291,6 +1307,22 @@ export const StopArrival: MessageFns<StopArrival> = {
           message.departureDelay = reader.int32();
           continue;
         }
+        case 11: {
+          if (tag !== 88) {
+            break;
+          }
+
+          message.scheduledArrivalUtc = longToNumber(reader.uint64());
+          continue;
+        }
+        case 12: {
+          if (tag !== 96) {
+            break;
+          }
+
+          message.scheduledDepartureUtc = longToNumber(reader.uint64());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1352,6 +1384,16 @@ export const StopArrival: MessageFns<StopArrival> = {
         : isSet(object.departure_delay)
         ? globalThis.Number(object.departure_delay)
         : undefined,
+      scheduledArrivalUtc: isSet(object.scheduledArrivalUtc)
+        ? globalThis.Number(object.scheduledArrivalUtc)
+        : isSet(object.scheduled_arrival_utc)
+        ? globalThis.Number(object.scheduled_arrival_utc)
+        : undefined,
+      scheduledDepartureUtc: isSet(object.scheduledDepartureUtc)
+        ? globalThis.Number(object.scheduledDepartureUtc)
+        : isSet(object.scheduled_departure_utc)
+        ? globalThis.Number(object.scheduled_departure_utc)
+        : undefined,
     };
   },
 
@@ -1387,6 +1429,12 @@ export const StopArrival: MessageFns<StopArrival> = {
     if (message.departureDelay !== undefined) {
       obj.departureDelay = Math.round(message.departureDelay);
     }
+    if (message.scheduledArrivalUtc !== undefined) {
+      obj.scheduledArrivalUtc = Math.round(message.scheduledArrivalUtc);
+    }
+    if (message.scheduledDepartureUtc !== undefined) {
+      obj.scheduledDepartureUtc = Math.round(message.scheduledDepartureUtc);
+    }
     return obj;
   },
 
@@ -1405,6 +1453,8 @@ export const StopArrival: MessageFns<StopArrival> = {
     message.agencyId = object.agencyId ?? "";
     message.arrivalDelay = object.arrivalDelay ?? undefined;
     message.departureDelay = object.departureDelay ?? undefined;
+    message.scheduledArrivalUtc = object.scheduledArrivalUtc ?? undefined;
+    message.scheduledDepartureUtc = object.scheduledDepartureUtc ?? undefined;
     return message;
   },
 };

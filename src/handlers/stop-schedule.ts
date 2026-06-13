@@ -62,7 +62,7 @@ export async function handleStopSchedule(request: Request, env: Env, ctx: Execut
 		// Cache miss — fetch static schedule and live delays in parallel
 		const [dbResult, feed] = await Promise.all([
 			new StaticDb(env.nta_static).getStopWithArrivals(stop_id),
-			new NtaClient(env, ctx).fetchTripUpdates(),
+			new NtaClient(env).fetchTripUpdates(),
 		]);
 
 		if (dbResult === null) {
@@ -107,6 +107,8 @@ export async function handleStopSchedule(request: Request, env: Env, ctx: Execut
 				scheduledArrival: (r.arrival_time as string) ?? "",
 				scheduledDeparture: (r.departure_time as string) ?? "",
 				agencyId: (r.agency_id as string) ?? "",
+				...(r.arrival_utc != null ? { scheduledArrivalUtc: r.arrival_utc as number } : {}),
+				...(r.departure_utc != null ? { scheduledDepartureUtc: r.departure_utc as number } : {}),
 				...delayByTripId.get(r.trip_id as string),
 			})),
 		};

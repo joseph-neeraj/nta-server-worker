@@ -8,18 +8,70 @@ A Cloudflare Worker that proxies [NTA GTFS-Realtime](https://developer.nationalt
 
 | Layer | What it does |
 |---|---|
-| **Live vehicles** (`GET /v1/live/vehicles`) | All active vehicles with real-time positions, enriched with route and headsign from static GTFS. Cached at the CF edge for 65 s. |
-| **Trip details** (`GET /v1/live/trips/:trip_id`) | Full trip info: static route/stops/shape plus real-time stop delays. Cached per trip for 65 s. |
+| **Live vehicles** (`GET /v1/live/vehicles`) | All active vehicles with real-time positions, enriched with route and headsign from static GTFS. Cached at the CF edge per 40 s slot. |
+| **Trip details** (`GET /v1/live/trips/:trip_id`) | Full trip info: static route/stops/shape plus real-time stop delays. Cached per trip for ~65 s. |
+| **Stop schedule** (`GET /v1/live/stops/:stop_id`) | Today's scheduled arrivals at a stop, enriched with real-time delays. Cached per stop for 2 min. |
+| **Static stops** (`GET /v1/static/stops`) | All stops from the static feed. Cached until the static data version changes. |
+| **Static version** (`GET /v1/static/version`) | Current static data version, so clients know when to re-fetch heavy static endpoints. |
 | **Session init** (`POST /init`) | Issues a short-lived JWT for authenticating subsequent API requests. |
 
 Requests are routed in `src/index.ts` via [Hono](https://hono.dev/).
 
 ---
 
+## Architecture
+
+### The problem
+
+NTA's real-time feeds have a strict rate limit: **one request every 60 seconds per API key**. We have two keys. But a Cloudflare Worker doesn't run as one program — it runs as many independent copies, one in each Cloudflare data centre ("colo") around the world. If every copy fetched NTA on its own, dozens of data centres would each burn through the limit at once, and NTA would start rejecting us.
+
+So we need **one single thing, globally, that talks to NTA** — and everything else reads what that one thing fetched.
+
+### The solution: one poller, shared via KV
+
+```mermaid
+flowchart LR
+  CRON["Cron (every 1 min)"] -->|keep alive| DO
+  DO["NtaPollerDO<br/>(one global instance)<br/>wakes every 40s"] -->|fetch| NTA["NTA real-time API"]
+  DO -->|write feed bytes| KV["RT_FEED_KV"]
+  USER["App user"] -->|GET /v1/live/*| W["Worker (any colo)"]
+  W -->|read feed bytes| KV
+  W -->|enrich with schedule| D1["D1 (static GTFS)"]
+  W -->|response| USER
+```
+
+**The poller** (`NtaPollerDO`, a [Durable Object](https://developers.cloudflare.com/durable-objects/)) is a special kind of Worker that exists as exactly **one instance in the entire world**. It wakes itself up every 40 seconds (using an "alarm"), fetches the latest feed from NTA, and saves the raw bytes into a KV store (`RT_FEED_KV`). A once-a-minute cron trigger acts as a watchdog that re-arms the alarm if it ever stops.
+
+**The request handlers** never call NTA. When an app user hits `/v1/live/*`, the Worker simply reads the latest bytes from `RT_FEED_KV`, enriches them with schedule data from D1, and responds. This keeps NTA traffic to exactly one set of calls globally, no matter how many users or data centres are involved.
+
+### The polling schedule
+
+The poller runs on a repeating **160-second cycle, split into four 40-second slots**, alternating the two API keys:
+
+| Slot | Time | NTA call | API key |
+|---|---|---|---|
+| 0 | 0 s | `/Vehicles` | KEY&nbsp;1 |
+| 1 | 40 s | `/Vehicles` | KEY&nbsp;2 |
+| 2 | 80 s | `/Vehicles` | KEY&nbsp;1 |
+| 3 | 120 s | `/TripUpdates` | KEY&nbsp;2 |
+
+Each key is used once every 80 seconds — a comfortable **20-second margin** over NTA's 60-second limit. Vehicle positions refresh every 40 s; trip delays every 160 s.
+
+### Caching layers
+
+1. **`RT_FEED_KV`** — the raw NTA feeds, refreshed by the poller. Shared by the whole fleet.
+2. **Edge cache** — each handler caches its final enriched response (protobuf, gzipped) at the local data centre, so repeat requests in the same slot skip the D1 work entirely.
+
+### Cold start
+
+Right after a fresh deploy, `RT_FEED_KV` is empty until the first poll runs (up to ~1 minute, when the cron first fires). During that brief window the live endpoints return a graceful "data unavailable" response rather than an error.
+
+---
+
 ## Prerequisites
 
-- Node.js ≥ 18
-- A [Cloudflare account](https://dash.cloudflare.com/) with Workers, D1, and KV enabled
+- Node.js ≥ 22 (Wrangler requires it)
+- A [Cloudflare account](https://dash.cloudflare.com/) with Workers, D1, KV, and Durable Objects enabled
 - An NTA API key from the [NTA Developer Portal](https://developer.nationaltransport.ie/)
 
 ---
@@ -32,13 +84,15 @@ Requests are routed in `src/index.ts` via [Hono](https://hono.dev/).
 npm install
 ```
 
-### 2. Create the KV namespace (rate limiting)
+### 2. Create the KV namespaces
 
 ```bash
-npx wrangler kv namespace create RATE_LIMIT_KV
+npx wrangler kv namespace create RATE_LIMIT_KV    # rate-limit buckets
+npx wrangler kv namespace create STATIC_META_KV   # static GTFS version marker
+npx wrangler kv namespace create RT_FEED_KV        # live NTA feed bytes (written by the poller)
 ```
 
-Copy the returned `id` into `wrangler.jsonc` under `kv_namespaces[0].id`.
+Copy each returned `id` into the matching `kv_namespaces` entry in `wrangler.jsonc` (in **both** the top-level and `env.staging` blocks).
 
 ### 3. Set secrets
 
@@ -64,6 +118,8 @@ Copy the returned `database_id` into `wrangler.jsonc` under `d1_databases[0].dat
 ```bash
 npx wrangler d1 execute nta-static --remote --file=migrations/0001_gtfs_static.sql
 ```
+
+> The `NtaPollerDO` Durable Object and its cron watchdog are configured in `wrangler.jsonc` and are created automatically on first `wrangler deploy` — no manual setup needed.
 
 ---
 
@@ -335,28 +391,41 @@ After a successful import, `.gtfs_pending_zip` is promoted to `.gtfs_last_zip`, 
 
 ```
 src/
-  index.ts              # Entry point — Hono router
-  init.ts               # POST /init — HMAC verification + JWT issuance
-  vehicles.ts           # GET /v1/live/vehicles
-  vehicle-details.ts    # GET /v1/live/trips/:trip_id
-  nta-client.ts         # NTA API client with key rotation and edge caching
-  env.d.ts              # Env interface extensions (secrets)
+  index.ts                # Entry point — Hono router + cron watchdog + DO export
+  env.d.ts                # Env interface extensions (secrets)
+  durable-objects/
+    nta-poller.ts         # NtaPollerDO — single global poller (NTA → RT_FEED_KV)
+  handlers/
+    init.ts               # POST /init — HMAC verification + JWT issuance
+    vehicles.ts           # GET /v1/live/vehicles
+    trip.ts               # GET /v1/live/trips/:trip_id
+    stop-schedule.ts      # GET /v1/live/stops/:stop_id
+    stops.ts              # GET /v1/static/stops
+    static-version.ts     # GET /v1/static/version
+  lib/
+    nta-client.ts         # Reads live feeds from RT_FEED_KV; slot/cache-key math
+    static-db.ts          # D1 static GTFS queries
+    proto-cache.ts        # Edge-cache helper for gzipped protobuf
+    compress.ts           # gzip / gunzip helpers
+    kv-rate-limit-store.ts # KV-backed rate-limit store
+    error-response.ts     # Standardised error responses
+    static-version.ts     # Reads static data version from KV
   generated/
     res/
-      gtfs-realtime.ts  # Auto-generated protobuf types
-      nta.ts            # Auto-generated protobuf types
+      gtfs-realtime.ts    # Auto-generated protobuf types
+      nta.ts              # Auto-generated protobuf types
 scripts/
-  deploy.sh             # Deploy to Cloudflare
-  generate-proto.sh     # Regenerate protobuf TypeScript types
-  setup-secrets.sh      # Reference guide for creating Cloudflare secrets
+  deploy.sh               # Deploy to Cloudflare
+  generate-proto.sh       # Regenerate protobuf TypeScript types
+  setup-secrets.sh        # Reference guide for creating Cloudflare secrets
   gtfs/
-    publish.sh          # End-to-end static GTFS data refresh (download → SQL → D1)
-    generate-sql.mjs    # Downloads GTFS ZIP and generates SQL import file
-    print-stats.mjs     # Prints per-table diff breakdown from .gtfs_stats.json
+    publish.sh            # End-to-end static GTFS data refresh (download → SQL → D1)
+    generate-sql.mjs      # Downloads GTFS ZIP and generates SQL import file
+    print-stats.mjs       # Prints per-table diff breakdown from .gtfs_stats.json
 migrations/
-  0001_gtfs_static.sql  # D1 schema
+  0001_gtfs_static.sql    # D1 schema
 res/
-  gtfs-realtime.proto   # Protobuf definition
-wrangler.jsonc          # Wrangler / Worker configuration
+  gtfs-realtime.proto     # Protobuf definition
+wrangler.jsonc            # Wrangler / Worker config (bindings, DO migration, cron)
 ```
 

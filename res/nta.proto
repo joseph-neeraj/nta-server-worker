@@ -92,13 +92,17 @@ message StopArrival {
   string trip_headsign       = 3;
   int32  direction_id        = 4;
   int32  stop_sequence       = 5;
-  string scheduled_arrival   = 6; // HH:MM:SS
-  string scheduled_departure = 7; // HH:MM:SS
+  string scheduled_arrival   = 6; // HH:MM:SS; hours may exceed 23 for post-midnight GTFS trips
+  string scheduled_departure = 7; // HH:MM:SS; hours may exceed 23 for post-midnight GTFS trips
   string agency_id           = 8; // e.g. "7778" — operator identifier
   // Real-time delay in seconds (positive = late).
   // Absent means no live data for this trip at this stop.
   optional int32 arrival_delay   = 9;
   optional int32 departure_delay = 10;
+  // POSIX seconds derived from the GTFS time + Dublin local midnight of the service date.
+  // Use these instead of parsing the string fields when you need wall-clock comparisons.
+  optional uint64 scheduled_arrival_utc   = 11;
+  optional uint64 scheduled_departure_utc = 12;
 }
 
 // ─── /v1/live/trips/{trip_id} ───────────────────────────────────────────────

@@ -8,14 +8,15 @@
 // read the published bytes from KV (see NtaClient), keeping the DO off the request
 // hot path.
 //
-// ── Slot schedule (40s slots, 160s cycle, 2 tokens) ──────────────────────────
-//   slot 0  T=0    /Vehicles     KEY_1
-//   slot 1  T=40   /Vehicles     KEY_2
-//   slot 2  T=80   /Vehicles     KEY_1
-//   slot 3  T=120  /TripUpdates  KEY_2   (no /Vehicles call — KV keeps slot 2's)
-//   ── repeats at T=160 ──
-// Each token is reused every 80s (KEY_1 on slots 0↔2, KEY_2 on slots 1↔3),
-// a 20s safety margin over NTA's 60s/token rate limit.
+// ── Slot schedule (32s slots, 128s cycle, 2 tokens) ──────────────────────────
+//   slot 0  T=0   /Vehicles     KEY_1
+//   slot 1  T=32  /Vehicles     KEY_2
+//   slot 2  T=64  /Vehicles     KEY_1
+//   slot 3  T=96  /TripUpdates  KEY_2   (no /Vehicles call — KV keeps slot 2's)
+//   ── repeats at T=128 ──
+// Each token is reused every 64s (KEY_1 on slots 0↔2, KEY_2 on slots 1↔3),
+// a 4s safety margin over NTA's 60s/token rate limit. The real margin is larger
+// since HTTP dispatch latency adds to the wall-clock reuse interval.
 
 import { DurableObject } from "cloudflare:workers";
 import { SLOT_MS, CYCLE_SLOTS, FEED_KV_VEHICLES, FEED_KV_TRIPUPDATES } from "../lib/nta-client";
@@ -51,7 +52,7 @@ export class NtaPollerDO extends DurableObject<Env> {
 		}
 	}
 
-	// Next 40s wall-clock boundary — matches the slot math in nta-client so the
+	// Next 32s wall-clock boundary — matches the slot math in nta-client so the
 	// poller fires exactly on slot edges (deterministic across restarts).
 	private nextSlotBoundary(): number {
 		return Math.floor(Date.now() / SLOT_MS) * SLOT_MS + SLOT_MS;
@@ -64,7 +65,7 @@ export class NtaPollerDO extends DurableObject<Env> {
 			const bytes = await this.fetchNta("/TripUpdates", this.env.NTA_API_KEY_2);
 			if (bytes) await this.publish(FEED_KV_TRIPUPDATES, bytes);
 		} else {
-			// slots 0 & 2 → KEY_1, slot 1 → KEY_2 (each token reused every 80s)
+			// slots 0 & 2 → KEY_1, slot 1 → KEY_2 (each token reused every 64s)
 			const apiKey = slot % 2 === 0 ? this.env.NTA_API_KEY_1 : this.env.NTA_API_KEY_2;
 			const bytes = await this.fetchNta("/Vehicles", apiKey);
 			if (bytes) await this.publish(FEED_KV_VEHICLES, bytes);

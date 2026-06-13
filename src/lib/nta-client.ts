@@ -7,28 +7,29 @@
 // independently (which would breach NTA's 60s/token limit).
 //
 // ── Slot schedule (owned by the poller; documented here for the cache keys) ──
-// 40s slots, 160s cycle (4 slots). Two NTA tokens, each reused every 80s
-// (20s margin over NTA's 60s/token limit):
-//   slot 0  T=0    /Vehicles     KEY_1
-//   slot 1  T=40   /Vehicles     KEY_2
-//   slot 2  T=80   /Vehicles     KEY_1
-//   slot 3  T=120  /TripUpdates  KEY_2   (Vehicles keeps serving slot 2's data)
+// 32s slots, 128s cycle (4 slots). Two NTA tokens, each reused every 64s
+// (4s margin over NTA's 60s/token limit; real margin is larger once HTTP
+// dispatch latency is added on top of the wall-clock reuse interval):
+//   slot 0  T=0   /Vehicles     KEY_1
+//   slot 1  T=32  /Vehicles     KEY_2
+//   slot 2  T=64  /Vehicles     KEY_1
+//   slot 3  T=96  /TripUpdates  KEY_2   (Vehicles keeps serving slot 2's data)
 
 import { FeedMessage } from "../generated/res/gtfs-realtime";
 
 /** Slot timing — shared with NtaPollerDO so its schedule and the cache keys agree. */
-export const SLOT_MS = 40_000;   // 40s per slot
-export const CYCLE_SLOTS = 4;    // 4 × 40s = 160s cycle
+export const SLOT_MS = 32_000;   // 32s per slot
+export const CYCLE_SLOTS = 4;    // 4 × 32s = 128s cycle
 
-/** Edge-cache TTL for enriched /Vehicles responses (slot 40s + small buffer). */
-export const VEHICLE_CACHE_TTL = 42;
+/** Edge-cache TTL for enriched /Vehicles responses (slot 32s + small buffer). */
+export const VEHICLE_CACHE_TTL = 34;
 
 /** KV keys the poller writes and this client reads (in the dedicated RT_FEED_KV namespace). */
 export const FEED_KV_VEHICLES = "feed:vehicles";
 export const FEED_KV_TRIPUPDATES = "feed:tripupdates";
 
 /**
- * Current 40s slot index within the 160s cycle (0–3).
+ * Current 32s slot index within the 128s cycle (0–3).
  * All isolates read the same wall clock, so they agree on the slot with no shared state.
  */
 function currentSlot(): number {
@@ -45,7 +46,7 @@ export function vehicleSlot(): number {
 }
 
 /**
- * Epoch key for the enriched /TripUpdates edge cache — increments once per 160s
+ * Epoch key for the enriched /TripUpdates edge cache — increments once per 128s
  * cycle, at slot 3 (when the poller publishes fresh TripUpdates). The phase shift
  * (- 3) makes slots 0–2 share the epoch of the preceding slot 3, so the enriched
  * trip response is reused across the cycle and refreshes right after each publish:

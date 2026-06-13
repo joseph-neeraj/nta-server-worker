@@ -187,8 +187,10 @@ export class StaticDb {
 						       EXCEPT
 						       SELECT service_id FROM calendar_dates WHERE date = ? AND exception_type = 2
 						     )
-						 )
-						 ORDER BY arrival_time`,
+						 )`,
+						 // No ORDER BY here: the union spans two service days, so the raw
+						 // GTFS string sorts post-midnight 24:xx rows after today's PM trips.
+						 // Final chronological ordering is done in JS by arrival_utc below.
 					)
 					.bind(
 						todayStr, stopId, todayStr, todayStr, todayStr, todayStr,              // Part 1
@@ -209,6 +211,16 @@ export class StaticDb {
 					arrival_utc: row.arrival_time ? gtfsTimeToUtcSeconds(row.arrival_time as string, midnightMs) : null,
 					departure_utc: row.departure_time ? gtfsTimeToUtcSeconds(row.departure_time as string, midnightMs) : null,
 				};
+			});
+
+			// Sort chronologically by the computed epoch. Can't be done in SQL: the union
+			// mixes two service days, so yesterday's post-midnight 24:xx trips (running early
+			// today) must interleave before today's later string times. Rows with no
+			// arrival_time fall back to departure_utc, then sort last if neither exists.
+			arrivalRows.sort((a, b) => {
+				const aKey = (a.arrival_utc ?? a.departure_utc ?? Infinity) as number;
+				const bKey = (b.arrival_utc ?? b.departure_utc ?? Infinity) as number;
+				return aKey - bKey;
 			});
 
 			return { stopRow, arrivalRows };

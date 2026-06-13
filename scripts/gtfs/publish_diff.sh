@@ -53,20 +53,24 @@ REMOTE_FLAG="" # set to --remote only if user confirmed above
 [[ "$PUBLISH_REMOTE" == "y" || "$PUBLISH_REMOTE" == "Y" ]] && REMOTE_FLAG="--remote"
 npx wrangler d1 execute nta-static $REMOTE_FLAG --file="$SQL_FILE"
 
-# Promote the just-imported zip as the new baseline for future diffs.
-# This only runs after a successful wrangler execute (set -e ensures that).
-if [[ -f scripts/gtfs/artifacts/.gtfs_pending_zip ]]; then
-  cp scripts/gtfs/artifacts/.gtfs_pending_zip scripts/gtfs/artifacts/.gtfs_last_zip
-  echo -e "${DIM}  Baseline updated → $(cat scripts/gtfs/artifacts/.gtfs_last_zip)${RESET}"
-fi
-
 # Stamp the static data version in KV so workers invalidate their edge cache.
 # Version = "<feed_uuid>/<ISO-timestamp>" — the UUID comes from feed_info.txt,
 # written by generate-sql.mjs to .gtfs_feed_version after each run.
+# This runs BEFORE baseline promotion: if the KV write fails (set -e aborts here),
+# the baseline stays unpromoted so a re-run still detects changes and retries the
+# whole publish, instead of reporting "unchanged" with a stale version key.
 FEED_UUID=$(cat scripts/gtfs/artifacts/.gtfs_feed_version)
 STATIC_VERSION="${FEED_UUID}/$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo -e "\n${YELLOW}▶ Writing static version to KV: ${STATIC_VERSION}${RESET}"
 npx wrangler kv key put --binding=STATIC_META_KV $REMOTE_FLAG "static:version" "$STATIC_VERSION"
 echo -e "${GREEN}${BOLD}  ✔ static:version = ${STATIC_VERSION}${RESET}"
+
+# Promote the just-imported zip as the new baseline for future diffs.
+# Last step on purpose — only reached after both the D1 import AND the KV stamp
+# succeeded, so the baseline only advances once the publish is fully committed.
+if [[ -f scripts/gtfs/artifacts/.gtfs_pending_zip ]]; then
+  cp scripts/gtfs/artifacts/.gtfs_pending_zip scripts/gtfs/artifacts/.gtfs_last_zip
+  echo -e "${DIM}  Baseline updated → $(cat scripts/gtfs/artifacts/.gtfs_last_zip)${RESET}"
+fi
 
 echo -e "\n${GREEN}${BOLD}✔ Done${RESET}"

@@ -10,6 +10,7 @@ import { handleStopSchedule } from "./handlers/stop-schedule";
 import { handleInit } from "./handlers/init";
 import { SafeKVStore } from "./lib/kv-rate-limit-store";
 import { NtaPollerDO } from "./durable-objects/nta-poller";
+import { POLLER_NAME } from "./lib/nta-client";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -62,7 +63,8 @@ app.get("/v1/live/stops/:stop_id", requireProtoAccept, (c) => handleStopSchedule
 app.get("/v1/static/stops", requireProtoAccept, (c) => handleStops(c.req.raw, c.env, c.executionCtx as ExecutionContext));
 app.get("/v1/static/version", (c) => handleStaticVersion(c.req.raw, c.env));
 
-// Durable Object that polls NTA and publishes feeds to KV (see nta-poller.ts).
+// Durable Object that polls NTA and serves the freshest feeds to the request
+// path (persisted to its own storage, mirrored to KV as a fallback — see nta-poller.ts).
 export { NtaPollerDO };
 
 export default {
@@ -70,6 +72,6 @@ export default {
 	// Cron watchdog: ensure the single global poller's alarm loop is running.
 	// idempotent — start() is a no-op if the alarm is already scheduled.
 	async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-		ctx.waitUntil(env.NTA_POLLER.getByName("nta-poller").start());
+		ctx.waitUntil(env.NTA_POLLER.getByName(POLLER_NAME).start());
 	},
 } satisfies ExportedHandler<Env>;

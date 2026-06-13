@@ -50,7 +50,7 @@
 		{ "tag": "v1", "new_sqlite_classes": ["NtaPollerDO"] }
 	],
 	// Watchdog: re-arms the poller's self-scheduling alarm if it's ever missing.
-	// The poller's real cadence is the DO's own 40s alarm — this cron does NOT
+	// The poller's real cadence is the DO's own 32s alarm — this cron does NOT
 	// drive polling. Every 5 min (288/day) is plenty just to guarantee the alarm
 	// exists; keeping it infrequent avoids needless invocations.
 	"triggers": {

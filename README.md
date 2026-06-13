@@ -27,22 +27,35 @@ NTA's real-time feeds have a strict rate limit: **one request every 60 seconds p
 
 So we need **one single thing, globally, that talks to NTA** — and everything else reads what that one thing fetched.
 
-### The solution: one poller, shared via KV
+### The solution: one global poller, read directly
 
 ```mermaid
 flowchart LR
-  CRON["Cron (every 5 min)"] -->|keep alive| DO
+  CRON["Cron (every 5 min)"] -->|watchdog: re-arm alarm| DO
   DO["NtaPollerDO<br/>(one global instance)<br/>wakes every 32s"] -->|fetch| NTA["NTA real-time API"]
-  DO -->|write feed bytes| KV["RT_FEED_KV"]
+  DO -->|persist bytes| ST["DO storage<br/>(strongly consistent)"]
+  DO -->|mirror bytes| KV["RT_FEED_KV<br/>(fallback / staging)"]
   USER["App user"] -->|GET /v1/live/*| W["Worker (any colo)"]
-  W -->|read feed bytes| KV
+  W -->|1 - feed cache?| FC["Edge feed cache"]
+  W -->|2 - RPC read latest| DO
+  W -.->|3 - fallback| KV
   W -->|enrich with schedule| D1["D1 (static GTFS)"]
   W -->|response| USER
 ```
 
-**The poller** (`NtaPollerDO`, a [Durable Object](https://developers.cloudflare.com/durable-objects/)) is a special kind of Worker that exists as exactly **one instance in the entire world**. It wakes itself up every 32 seconds (using an "alarm"), fetches the latest feed from NTA, and saves the raw bytes into a KV store (`RT_FEED_KV`). A cron trigger that fires every 5 minutes acts as a watchdog that re-arms the alarm if it ever stops.
+**The poller** (`NtaPollerDO`, a [Durable Object](https://developers.cloudflare.com/durable-objects/)) exists as exactly **one instance in the entire world**. It wakes itself every 32 seconds (an "alarm"), fetches the latest feed from NTA, and persists the raw bytes to its own strongly-consistent storage. A cron trigger every 5 minutes is only a watchdog that re-arms the alarm if it ever stops.
 
-**The request handlers** never call NTA. When an app user hits `/v1/live/*`, the Worker simply reads the latest bytes from `RT_FEED_KV`, enriches them with schedule data from D1, and responds. This keeps NTA traffic to exactly one set of calls globally, no matter how many users or data centres are involved.
+**The request handlers** never call NTA. They read the freshest bytes **directly from the poller DO** over RPC, enrich them with schedule data from D1, and respond. This keeps NTA traffic to exactly one set of calls globally, no matter how many users or data centres are involved.
+
+#### Why read from the DO and not from KV?
+
+The obvious design is "poller writes to KV, handlers read from KV". We started there, and it produced a subtle bug: **clients saw the same data — and the same `X-Last-Update-At` — for up to ~60 seconds**, even though the poller publishes every 32 s.
+
+The cause is KV's consistency model. KV is *eventually* consistent: once a colo reads a key, it caches that value (and its metadata) in-region for up to ~60 seconds, and newer writes from the poller stay invisible there until that cache expires. No `cacheTtl` setting fixes this — the minimum is 30 s and cross-region propagation is "up to 60 s". KV simply cannot deliver 32-second read freshness.
+
+A Durable Object **is** strongly consistent, so reading the latest bytes from it is always fresh. To keep the DO off the hot path we put a short **feed-level edge cache** in front of it (one entry per feed per colo per slot), so the whole fleet makes at most ~one RPC per colo per slot regardless of request volume. KV is kept only as a fallback (a DO that is cold right after eviction) and as the **sole feed source for the staging Worker**, which binds no poller DO of its own.
+
+> The poller persists to **DO storage**, not just an in-memory field, on purpose: a Durable Object is evicted from memory between its 32 s alarms, which would wipe an in-memory cache and send reads back to the stale KV path. DO storage survives eviction and stays strongly consistent (feeds are well under the 2 MB per-value limit).
 
 ### The polling schedule
 
@@ -69,19 +82,32 @@ Each key is used once every 64 seconds — a **4-second nominal margin** over NT
 
 1. The platform invokes `NtaPollerDO.alarm()`.
 2. `poll()` works out the current slot (0–3) and fetches the matching NTA feed with the matching key, with a **10 s fetch timeout**.
-3. On success it writes the raw proto bytes to `RT_FEED_KV` (key `feed:vehicles` or `feed:tripupdates`) with a **600 s TTL**. On failure it logs and skips — the previous bytes stay live until their TTL.
+3. On success it stamps metadata (`nextUpdateAt`, `lastUpdateAt = now`), persists the raw bytes + metadata to **DO storage** (the request path's source of truth), and mirrors them to `RT_FEED_KV` (600 s TTL) for the fallback/staging path. On failure it logs and skips — the previous bytes stay live.
 4. In a `finally` block it schedules the next alarm for the next 32 s boundary. This self-reschedule is what keeps the loop alive; the cron is only a fallback.
 
 **Steady-state user request (`GET /v1/live/*`):**
 
-1. The Worker (in whatever colo serves the user) checks its local **edge cache** first. On a hit, it returns the cached gzipped protobuf immediately — no KV or D1 work.
-2. On a miss, it reads the latest feed bytes from `RT_FEED_KV`, enriches them with schedule data from D1, gzips the result, stores it in the edge cache, and returns it.
-3. If `RT_FEED_KV` is still empty (pre-first-poll), it returns a graceful "data unavailable" response instead of an error.
+1. The Worker (in whatever colo serves the user) checks its local **enriched-response edge cache** first. On a hit it returns the cached gzipped protobuf immediately — no DO, KV, or D1 work.
+2. On a miss it fetches the raw feed via `NtaClient`, which reads newest-source-first: a short-lived **feed-level edge cache**, then the **poller DO over RPC** (strongly consistent), then **KV** as a fallback. It then enriches with D1, gzips, stores the enriched response in the edge cache, and returns it.
+3. Every live response carries the two freshness headers below. If no source has data yet (pre-first-poll), it returns a graceful "data unavailable" response instead of an error.
+
+### Freshness headers
+
+Every `/v1/live/*` response advertises when its data was produced and when it will next change, so clients can poll efficiently instead of guessing:
+
+| Header | Meaning |
+|---|---|
+| `X-Last-Update-At` | Epoch-ms of the last successful poll behind this data. |
+| `X-Next-Update-At` | Epoch-ms when fresh data is next expected. Clamped to at least now + one slot so a stalled poller can't advertise a past instant. |
+
+`Cache-Control: max-age` is aligned to `X-Next-Update-At`, so HTTP freshness and the advertised hint always agree. A client should re-fetch at `X-Next-Update-At`; if two consecutive responses share the same `X-Last-Update-At`, the upstream feed genuinely hasn't changed yet.
 
 ### Caching layers
 
-1. **`RT_FEED_KV`** — the raw NTA feeds, refreshed by the poller (600 s TTL, overwritten every cycle). Shared by the whole fleet.
-2. **Edge cache** — each handler caches its final enriched response (protobuf, gzipped) at the local data centre, so repeat requests within the cache window skip the D1 work entirely.
+1. **Enriched-response edge cache** — each handler caches its final enriched response (protobuf, gzipped) at the local colo, keyed by the current slot/epoch, so repeat requests within the slot skip all downstream work.
+2. **Feed-level edge cache** — the raw decoded feed, cached per colo per slot in front of the poller DO. It collapses many enriched-cache misses (especially per-trip and per-stop ones) into at most one DO read per colo per slot.
+3. **Poller DO storage** — the strongly-consistent source of truth the request path reads over RPC. Refreshed every slot; survives DO eviction.
+4. **`RT_FEED_KV`** — a fallback mirror of the raw feeds (600 s TTL). Used when the DO is cold immediately after eviction, and as the only feed source on staging.
 
 ### Timeouts &amp; cache TTLs reference
 
@@ -95,7 +121,9 @@ Every tunable timeout and cache lifetime in one place:
 | NTA fetch timeout | 10 s | `FETCH_TIMEOUT_MS` (`nta-poller.ts`) | Aborts a slow NTA subrequest |
 | `RT_FEED_KV` TTL | 600 s | `FEED_KV_TTL` (`nta-poller.ts`) | Raw feed bytes survive transient poll failures |
 | Cron watchdog | every 5 min | `triggers.crons` (`wrangler.jsonc`) | Re-arms the alarm only if missing |
-| Vehicles edge cache | 34 s | `VEHICLE_CACHE_TTL` (`nta-client.ts`) | `/v1/live/vehicles` response cache |
+| Vehicles edge cache | 34 s | `VEHICLE_CACHE_TTL` (`nta-client.ts`) | `/v1/live/vehicles` response cache (aligned to next refresh) |
+| Vehicles feed cache | 34 s | `VEHICLES_FEED_CACHE_TTL` (`nta-client.ts`) | Raw Vehicles feed cached in front of the poller DO |
+| TripUpdates feed cache | 130 s | `TRIPUPDATES_FEED_CACHE_TTL` (`nta-client.ts`) | Raw TripUpdates feed cached in front of the poller DO |
 | Trip edge cache | 65 s | `CACHE_TTL` (`trip.ts`) | `/v1/live/trips/:id` response cache |
 | Stop schedule edge cache | 120 s | `CACHE_TTL` (`stop-schedule.ts`) | `/v1/live/stops/:id` response cache |
 | Static stops cache | 300 s | `max-age` (`stops.ts`) | `/v1/static/stops` response cache |
@@ -107,7 +135,7 @@ Every tunable timeout and cache lifetime in one place:
 
 ### Cold start
 
-Right after a fresh deploy, `RT_FEED_KV` is empty until the first poll runs (up to ~5 minutes, when the cron first fires and bootstraps the alarm). During that brief window the live endpoints return a graceful "data unavailable" response rather than an error.
+Right after a fresh deploy, the poller's storage and `RT_FEED_KV` are both empty until the first poll runs (up to ~5 minutes, when the cron first fires and bootstraps the alarm). During that brief window the live endpoints return a graceful "data unavailable" response rather than an error.
 
 ---
 
@@ -207,7 +235,7 @@ On a successful `/init`, the Worker issues a signed JWT (HS256, 1 hour expiry) c
 | Endpoint | Key | Limit |
 |---|---|---|
 | `POST /init` | IP (`CF-Connecting-IP`) | 120 requests / IP / hour |
-| `GET /v1/*` | Token identity (`jti`) | 120 requests / token / minute |
+| `GET /v1/*` | Token identity (`jti`) | 600 requests / token / 5 min (≈ 120/min) |
 
 IP-based limiting on `/init` is set generously to accommodate users behind NAT or mobile carrier CGNAT. The `/v1/*` routes are limited per token rather than per IP — each session has its own independent bucket, so users sharing an IP cannot affect each other.
 
@@ -245,7 +273,7 @@ Returns all active vehicles with real-time positions, enriched with `route_short
 - `application/x-protobuf` — binary protobuf
 - `application/json` — JSON (only when `ENABLE_JSON=true`)
 
-Responses are cached at the edge for **65 seconds**.
+Responses are cached at the edge until the next refresh (~32 s) and carry `X-Next-Update-At` / `X-Last-Update-At` freshness headers.
 
 ---
 
@@ -276,7 +304,7 @@ Returns full trip details: static route info, stop list with arrival/departure t
 }
 ```
 
-Responses are cached per `trip_id` for **65 seconds**.
+Responses are cached per `trip_id` until the next trip-updates refresh (≤ ~65 s) and carry `X-Next-Update-At` / `X-Last-Update-At` freshness headers.
 
 ---
 

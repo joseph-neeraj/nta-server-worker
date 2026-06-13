@@ -1,10 +1,13 @@
-// Reads the latest GTFS-Realtime feeds (decoded) from KV.
+// Reads the latest GTFS-Realtime feeds (decoded) for the request path.
 //
 // Polling NTA (token rotation + rate-limit budgeting) is owned by NtaPollerDO,
-// a single global Durable Object that fetches each feed once per slot and writes
-// the raw proto bytes to KV. This client just reads those bytes and decodes them,
-// so the whole fleet shares one set of NTA calls instead of every colo fetching
-// independently (which would breach NTA's 60s/token limit).
+// a single global Durable Object that fetches each feed once per slot. This client
+// reads the freshest bytes DIRECTLY from that DO (strongly consistent) rather than
+// from KV, because KV caches a value in-region for up to ~60s after a newer write
+// and would otherwise serve stale data + a frozen X-Last-Update-At. A feed-level
+// edge cache in front of the DO bounds reads to ~one per colo per slot, and KV is
+// kept as a fallback (and as the only source for the staging Worker, which binds
+// no poller DO).
 //
 // ── Slot schedule (owned by the poller; documented here for the cache keys) ──
 // 32s slots, 128s cycle (4 slots). Two NTA tokens, each reused every 64s
@@ -19,6 +22,9 @@ import { FeedMessage } from "../generated/res/gtfs-realtime";
 
 /** Metadata the poller stores alongside each feed in KV. */
 export type FeedMetadata = { nextUpdateAt: number; lastUpdateAt: number };
+
+/** Raw feed bytes + metadata, as held in the poller's storage and returned over RPC. */
+export type FeedPayload = { bytes: Uint8Array; metadata: FeedMetadata };
 
 /**
  * A decoded feed plus the poller's metadata (next/last update instants).
@@ -36,6 +42,25 @@ export const VEHICLE_CACHE_TTL = 34;
 /** KV keys the poller writes and this client reads (in the dedicated RT_FEED_KV namespace). */
 export const FEED_KV_VEHICLES = "feed:vehicles";
 export const FEED_KV_TRIPUPDATES = "feed:tripupdates";
+
+/** Fixed name of the single global poller DO (shared with index.ts). */
+export const POLLER_NAME = "nta-poller";
+
+// Types for the poller DO binding, derived from Env so we don't import the DO class
+// (which would create a circular import — the DO imports constants from this file).
+type PollerNamespace = Env["NTA_POLLER"];
+type PollerStub = ReturnType<PollerNamespace["getByName"]>;
+
+// Feed-level edge cache TTLs: how long a raw feed stays cached per colo to bound
+// poller-DO reads. Vehicles refresh per 32s slot; TripUpdates per 128s cycle, so
+// the TTLs match those windows. The slot/epoch in the cache key drives correctness
+// — the TTL just caps how long stale-after-rotation entries linger before cleanup.
+const VEHICLES_FEED_CACHE_TTL = VEHICLE_CACHE_TTL; // ~one 32s slot
+const TRIPUPDATES_FEED_CACHE_TTL = 130;            // ~one 128s cycle + buffer
+
+// Internal headers carrying raw (unclamped) metadata on feed-cache entries.
+const FEED_META_NEXT = "x-feed-next-update-at";
+const FEED_META_LAST = "x-feed-last-update-at";
 
 /**
  * Current 32s slot index within the 128s cycle (0–3).
@@ -77,29 +102,90 @@ export class NtaClient {
 	constructor(private env: Env) {}
 
 	async fetchVehicles(): Promise<FeedResult | null> {
-		return this.readFeed(FEED_KV_VEHICLES);
+		return this.readFeed(FEED_KV_VEHICLES, `vehicles:${vehicleSlot()}`, VEHICLES_FEED_CACHE_TTL, (stub) => stub.getVehicles());
 	}
 
 	async fetchTripUpdates(): Promise<FeedResult | null> {
-		return this.readFeed(FEED_KV_TRIPUPDATES);
+		return this.readFeed(FEED_KV_TRIPUPDATES, `tripupdates:${tripUpdateCacheKey()}`, TRIPUPDATES_FEED_CACHE_TTL, (stub) => stub.getTripUpdates());
 	}
 
-	// Reads the latest feed bytes (and the poller's metadata) from KV, then decodes
-	// the bytes. Returns null if the key isn't populated yet (e.g. right after first
-	// deploy), so handlers' graceful-degradation paths still apply.
-	private async readFeed(key: string): Promise<FeedResult | null> {
-		const { value, metadata } = await this.env.RT_FEED_KV.getWithMetadata<FeedMetadata>(key, "arrayBuffer");
-		if (!value) return null;
+	// Reads the latest feed, newest-source-first:
+	//   1. feed-level edge cache  — collapses many enriched-cache misses (especially
+	//      per-trip / per-stop ones) into ONE poller read per colo per slot.
+	//   2. the poller DO directly — strongly consistent, unlike KV (which can keep
+	//      serving a value cached in-region for up to ~60s after a newer write).
+	//   3. KV — fallback for the brief window after the DO is recreated post eviction
+	//      and before its first poll, AND the only source on staging (no poller DO).
+	// Returns null if no source has data, so handlers' graceful-degradation applies.
+	private async readFeed(
+		kvKey: string,
+		cacheTag: string,
+		cacheTtl: number,
+		readFromDO: (stub: PollerStub) => Promise<FeedPayload | null>,
+	): Promise<FeedResult | null> {
+		const cache = caches.default;
+		const cacheKey = feedCacheKey(cacheTag);
+
+		const cached = await cache.match(cacheKey);
+		if (cached) {
+			const bytes = new Uint8Array(await cached.arrayBuffer());
+			return this.toResult(bytes, readFeedCacheMeta(cached));
+		}
+
+		let payload = await this.readFromPoller(readFromDO);
+		if (!payload) payload = await this.readFromKV(kvKey);
+		if (!payload) return null;
+
+		// Warm the feed cache so sibling requests in this slot skip the DO hop. Stores
+		// raw (unclamped) metadata in headers; clamping happens in toResult on the way out.
+		await cache.put(cacheKey, new Response(payload.bytes, {
+			headers: { "Cache-Control": `public, max-age=${cacheTtl}`, ...feedCacheMetaHeaders(payload.metadata) },
+		}));
+
+		return this.toResult(payload.bytes, payload.metadata);
+	}
+
+	// Calls the single global poller DO for its freshest stored payload. Returns null
+	// when no poller DO is bound (staging shares prod's feeds via KV) so the caller
+	// falls through to readFromKV instead of throwing on an undefined binding.
+	private readFromPoller(call: (stub: PollerStub) => Promise<FeedPayload | null>): Promise<FeedPayload | null> {
+		const ns = this.env.NTA_POLLER as PollerNamespace | undefined;
+		if (!ns) return Promise.resolve(null);
+		return call(ns.getByName(POLLER_NAME));
+	}
+
+	// Last-resort read of the bytes the poller persisted to KV. Eventually consistent
+	// (may be stale), so it's only used when the DO has no data yet or isn't bound.
+	private async readFromKV(kvKey: string): Promise<FeedPayload | null> {
+		const { value, metadata } = await this.env.RT_FEED_KV.getWithMetadata<FeedMetadata>(kvKey, "arrayBuffer");
+		if (!value || !metadata) return null;
+		return { bytes: new Uint8Array(value), metadata };
+	}
+
+	// Decodes the feed and clamps nextUpdateAt so a stalled poller can't advertise a
+	// past instant (lastUpdateAt is a real past timestamp, returned as-is).
+	private toResult(bytes: Uint8Array, metadata: FeedMetadata): FeedResult {
 		return {
-			feed: FeedMessage.decode(new Uint8Array(value)),
-			// null until the poller publishes metadata; otherwise clamp nextUpdateAt so a
-			// stalled poller can't advertise a past instant (lastUpdateAt needs no clamp —
-			// it's a real past timestamp).
-			metadata: metadata
-				? { nextUpdateAt: clampNextUpdateAt(metadata.nextUpdateAt), lastUpdateAt: metadata.lastUpdateAt }
-				: null,
+			feed: FeedMessage.decode(bytes),
+			metadata: { nextUpdateAt: clampNextUpdateAt(metadata.nextUpdateAt), lastUpdateAt: metadata.lastUpdateAt },
 		};
 	}
+}
+
+/** Synthetic cache key for a raw feed entry in the colo's edge cache. */
+function feedCacheKey(tag: string): Request {
+	return new Request(`https://nta-feed-cache/${tag}`, { method: "GET" });
+}
+
+function feedCacheMetaHeaders(m: FeedMetadata): Record<string, string> {
+	return { [FEED_META_NEXT]: String(m.nextUpdateAt), [FEED_META_LAST]: String(m.lastUpdateAt) };
+}
+
+function readFeedCacheMeta(res: Response): FeedMetadata {
+	return {
+		nextUpdateAt: Number(res.headers.get(FEED_META_NEXT)),
+		lastUpdateAt: Number(res.headers.get(FEED_META_LAST)),
+	};
 }
 
 /**

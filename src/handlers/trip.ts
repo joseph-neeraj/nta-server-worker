@@ -36,7 +36,7 @@ const CACHE_TTL = 65; // seconds
 import { TripDetails } from "../generated/res/nta";
 import { gzip } from "../lib/compress";
 import { buildErrorResponse } from "../lib/error-response";
-import { ProtoCache } from "../lib/proto-cache";
+import { ProtoCache, nextUpdateHeaders, readNextUpdateAt } from "../lib/proto-cache";
 import { StaticDb } from "../lib/static-db";
 
 export async function handleTripFetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -58,11 +58,14 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 
 	let details: TripDetails;
 	let compressedProto: Uint8Array | undefined;
+	// Epoch-ms instant the live delay data next refreshes; advertised via X-Next-Update-At.
+	let nextUpdateAt: number | null = null;
 
 	if (cachedProto) {
 		// JSON requested — decompress cached bytes, then decode
 		const rawBytes = await protoCache.decompress(cachedProto);
 		details = TripDetails.decode(rawBytes);
+		nextUpdateAt = readNextUpdateAt(cachedProto);
 	} else {
 		// Cache miss — fetch from D1 and NTA in parallel
 		const [dbResult, delayUpdates] = await Promise.all([
@@ -77,6 +80,7 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 			return buildErrorResponse(500, "Database error", accept, "Something went wrong. Please try again shortly.");
 		}
 
+		nextUpdateAt = delayUpdates?.nextUpdateAt ?? null;
 		const { tripRow, stopRows, shapeRows } = dbResult;
 
 		console.log(`[trip:${trip_id}] delayUpdates=${delayUpdates == null ? "null" : `timestamp=${delayUpdates.timestamp}, stops=${delayUpdates.stops.length}`}`);
@@ -134,19 +138,19 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 		compressedProto = await gzip(rawBytes);
 		console.log(`[trip:${trip_id}] proto gzip=${compressedProto.length}B (${Math.round((1 - compressedProto.length / rawBytes.length) * 100)}% reduction)`);
 		// make sure the cache expires a little before the api cache, so fresh data is always available
-		protoCache.put(cacheKey, compressedProto, CACHE_TTL - 2);
+		protoCache.put(cacheKey, compressedProto, CACHE_TTL - 2, nextUpdateAt);
 	}
 
 	if (accept === "application/json") {
 		return new Response(JSON.stringify(TripDetails.toJSON(details)), {
-			headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${CACHE_TTL}` },
+			headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${CACHE_TTL}`, ...nextUpdateHeaders(nextUpdateAt) },
 		});
 	}
 
 	// compressedProto is always set on the cache-miss path; the fallback guards against type errors only
 	const bytes = compressedProto ?? await gzip(TripDetails.encode(details).finish());
 	return new Response(bytes, {
-		headers: { "Content-Type": "application/x-protobuf", "Content-Encoding": "gzip", "Cache-Control": `public, max-age=${CACHE_TTL}` },
+		headers: { "Content-Type": "application/x-protobuf", "Content-Encoding": "gzip", "Cache-Control": `public, max-age=${CACHE_TTL}`, ...nextUpdateHeaders(nextUpdateAt) },
 	});
 }
 
@@ -157,16 +161,19 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 async function fetchDelayUpdates(
 	trip_id: string,
 	env: Env,
-): Promise<{ timestamp: number | null; stops: { stopId: string | null; arrivalDelay: number | null; departureDelay: number | null }[] } | null> {
-	const feed = await new NtaClient(env).fetchTripUpdates();
-	if (!feed) return null;
+): Promise<{ timestamp: number | null; nextUpdateAt: number | null; stops: { stopId: string | null; arrivalDelay: number | null; departureDelay: number | null }[] } | null> {
+	const result = await new NtaClient(env).fetchTripUpdates();
+	if (!result) return null;
+	const feed = result.feed;
 
+	// A trip may legitimately have no live entry yet — still surface nextUpdateAt
+	// (with empty stops) so the client knows when the next feed publish is due.
 	const entity = feed.entity.find((e) => e.tripUpdate?.trip?.tripId === trip_id);
-	if (!entity?.tripUpdate) return null;
 
 	return {
-		timestamp: entity.tripUpdate.timestamp ?? null,
-		stops: entity.tripUpdate.stopTimeUpdate.map((stu) => ({
+		timestamp: entity?.tripUpdate?.timestamp ?? null,
+		nextUpdateAt: result.nextUpdateAt,
+		stops: (entity?.tripUpdate?.stopTimeUpdate ?? []).map((stu) => ({
 			stopId: stu.stopId ?? null,
 			arrivalDelay: stu.arrival?.delay ?? null,
 			departureDelay: stu.departure?.delay ?? null,

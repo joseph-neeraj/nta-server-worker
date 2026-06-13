@@ -25,11 +25,11 @@
 //   ]
 // }
 
-import { NtaClient } from "../lib/nta-client";
+import { NtaClient, tripUpdateCacheKey } from "../lib/nta-client";
 import { StopSchedule } from "../generated/res/nta";
 import { gzip } from "../lib/compress";
 import { buildErrorResponse } from "../lib/error-response";
-import { ProtoCache } from "../lib/proto-cache";
+import { ProtoCache, nextUpdateHeaders, readNextUpdateAt } from "../lib/proto-cache";
 import { StaticDb } from "../lib/static-db";
 
 const CACHE_TTL = 120; // 2 minutes — schedule can change in real time
@@ -43,8 +43,11 @@ export async function handleStopSchedule(request: Request, env: Env, ctx: Execut
 	}
 
 	const protoCache = new ProtoCache(ctx);
+	// Key rotates with the TripUpdates epoch (same cadence as the live delay feed),
+	// so a client polling at nextUpdateAt hits a new key → cache miss → fresh delays,
+	// instead of a stale flat-key hit that would also serve an already-elapsed header.
 	const cacheKey = new Request(
-		`https://nta-worker-cache/v1/live/stops/${encodeURIComponent(stop_id)}`,
+		`https://nta-worker-cache/v1/live/stops/${encodeURIComponent(stop_id)}?e=${tripUpdateCacheKey()}`,
 		{ method: "GET" },
 	);
 	const cachedProto = await protoCache.match(cacheKey);
@@ -53,14 +56,17 @@ export async function handleStopSchedule(request: Request, env: Env, ctx: Execut
 
 	let schedule: StopSchedule;
 	let compressedProto: Uint8Array | undefined;
+	// Epoch-ms instant the live delay data next refreshes; advertised via X-Next-Update-At.
+	let nextUpdateAt: number | null = null;
 
 	if (cachedProto) {
 		// JSON requested — decompress cached bytes, then decode
 		const rawBytes = await protoCache.decompress(cachedProto);
 		schedule = StopSchedule.decode(rawBytes);
+		nextUpdateAt = readNextUpdateAt(cachedProto);
 	} else {
 		// Cache miss — fetch static schedule and live delays in parallel
-		const [dbResult, feed] = await Promise.all([
+		const [dbResult, feedResult] = await Promise.all([
 			new StaticDb(env.nta_static).getStopWithArrivals(stop_id),
 			new NtaClient(env).fetchTripUpdates(),
 		]);
@@ -72,6 +78,8 @@ export async function handleStopSchedule(request: Request, env: Env, ctx: Execut
 			return buildErrorResponse(500, "Database error", accept, "Something went wrong. Please try again shortly.");
 		}
 
+		const feed = feedResult?.feed;
+		nextUpdateAt = feedResult?.nextUpdateAt ?? null;
 		const { stopRow, arrivalRows } = dbResult;
 
 		// Build a lookup of trip_id → delay data from the TripUpdates feed.
@@ -117,18 +125,18 @@ export async function handleStopSchedule(request: Request, env: Env, ctx: Execut
 		console.log(`[stop:${stop_id}] proto raw=${rawBytes.length}B arrivals=${schedule.arrivals.length}`);
 		compressedProto = await gzip(rawBytes);
 		console.log(`[stop:${stop_id}] proto gzip=${compressedProto.length}B (${Math.round((1 - compressedProto.length / rawBytes.length) * 100)}% reduction)`);
-		protoCache.put(cacheKey, compressedProto, CACHE_TTL);
+		protoCache.put(cacheKey, compressedProto, CACHE_TTL, nextUpdateAt);
 	}
 
 	if (accept === "application/json") {
 		return new Response(JSON.stringify(StopSchedule.toJSON(schedule)), {
-			headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${CACHE_TTL}` },
+			headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${CACHE_TTL}`, ...nextUpdateHeaders(nextUpdateAt) },
 		});
 	}
 
 	// compressedProto is always set on the cache-miss path; the fallback guards against type errors only
 	const bytes = compressedProto ?? await gzip(StopSchedule.encode(schedule).finish());
 	return new Response(bytes, {
-		headers: { "Content-Type": "application/x-protobuf", "Content-Encoding": "gzip", "Cache-Control": `public, max-age=${CACHE_TTL}` },
+		headers: { "Content-Type": "application/x-protobuf", "Content-Encoding": "gzip", "Cache-Control": `public, max-age=${CACHE_TTL}`, ...nextUpdateHeaders(nextUpdateAt) },
 	});
 }

@@ -9,7 +9,7 @@ import { NtaClient, VEHICLE_CACHE_TTL, vehicleSlot } from "../lib/nta-client";
 import { VehiclesFeed } from "../generated/res/nta";
 import { gzip } from "../lib/compress";
 import { buildErrorResponse } from "../lib/error-response";
-import { ProtoCache } from "../lib/proto-cache";
+import { ProtoCache, nextUpdateHeaders, readNextUpdateAt } from "../lib/proto-cache";
 import { StaticDb } from "../lib/static-db";
 
 export async function handleVehicles(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -21,19 +21,25 @@ export async function handleVehicles(request: Request, env: Env, ctx: ExecutionC
 	const cachedProto = await protoCache.match(cacheKey);
 
 	// Proto cache hit — return directly without any decode/re-encode work
+	// (the cached Response already carries the X-Next-Update-At header).
 	if (cachedProto && accept !== "application/json") return cachedProto;
 
 	let enriched: VehiclesFeed;
 	let compressedProto: Uint8Array | undefined;
+	// Epoch-ms instant the live data next refreshes; advertised via X-Next-Update-At.
+	let nextUpdateAt: number | null = null;
 
 	if (cachedProto) {
 		// JSON requested — decompress cached bytes, then decode
 		const rawBytes = await protoCache.decompress(cachedProto);
 		enriched = VehiclesFeed.decode(rawBytes);
+		nextUpdateAt = readNextUpdateAt(cachedProto);
 	} else {
 		// Cache miss — fetch from NTA and enrich with D1 static data
-		const feed = await new NtaClient(env).fetchVehicles();
-		if (!feed) return buildErrorResponse(502, "NTA Server down", accept, "NTA Server is down. Try again in a few minutes");
+		const result = await new NtaClient(env).fetchVehicles();
+		if (!result) return buildErrorResponse(502, "NTA Server down", accept, "NTA Server is down. Try again in a few minutes");
+		const feed = result.feed;
+		nextUpdateAt = result.nextUpdateAt;
 
 		// Collect all trip_ids so we can fetch enrichment data in a single D1 query
 		const tripIds = feed.entity
@@ -73,19 +79,19 @@ export async function handleVehicles(request: Request, env: Env, ctx: ExecutionC
 		console.log(`[vehicles] proto raw=${rawBytes.length}B`);
 		compressedProto = await gzip(rawBytes);
 		console.log(`[vehicles] proto gzip=${compressedProto.length}B (${Math.round((1 - compressedProto.length / rawBytes.length) * 100)}% reduction)`);
-		protoCache.put(cacheKey, compressedProto, VEHICLE_CACHE_TTL);
+		protoCache.put(cacheKey, compressedProto, VEHICLE_CACHE_TTL, nextUpdateAt);
 	}
 
 	if (accept === "application/json") {
 		return new Response(JSON.stringify(VehiclesFeed.toJSON(enriched)), {
-			headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${VEHICLE_CACHE_TTL}` },
+			headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${VEHICLE_CACHE_TTL}`, ...nextUpdateHeaders(nextUpdateAt) },
 		});
 	}
 
 	// compressedProto is always set on the cache-miss path; the fallback guards against type errors only
 	const bytes = compressedProto ?? await gzip(VehiclesFeed.encode(enriched).finish());
 	return new Response(bytes, {
-		headers: { "Content-Type": "application/x-protobuf", "Content-Encoding": "gzip", "Cache-Control": `public, max-age=${VEHICLE_CACHE_TTL}` },
+		headers: { "Content-Type": "application/x-protobuf", "Content-Encoding": "gzip", "Cache-Control": `public, max-age=${VEHICLE_CACHE_TTL}`, ...nextUpdateHeaders(nextUpdateAt) },
 	});
 }
 

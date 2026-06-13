@@ -19,12 +19,17 @@
 // since HTTP dispatch latency adds to the wall-clock reuse interval.
 
 import { DurableObject } from "cloudflare:workers";
-import { SLOT_MS, CYCLE_SLOTS, FEED_KV_VEHICLES, FEED_KV_TRIPUPDATES } from "../lib/nta-client";
+import { SLOT_MS, CYCLE_SLOTS, FEED_KV_VEHICLES, FEED_KV_TRIPUPDATES, type FeedMetadata } from "../lib/nta-client";
 
 const NTA_BASE = "https://api.nationaltransport.ie/gtfsr/v2";
 
 /** Hard timeout for NTA subrequests — avoids hanging indefinitely on a slow upstream. */
 const FETCH_TIMEOUT_MS = 10_000;
+
+// Small buffer added to the advertised nextUpdateAt so a client aiming exactly at
+// that instant doesn't arrive a hair before the poller has finished fetching and
+// writing the next bytes. Covers NTA fetch + KV-put latency for the next slot.
+const PUBLISH_LATENCY_BUFFER_MS = 2_000;
 
 // Generous TTL so a single transient poll failure doesn't immediately blank a feed;
 // normal operation overwrites each key well within this window.
@@ -58,23 +63,54 @@ export class NtaPollerDO extends DurableObject<Env> {
 		return Math.floor(Date.now() / SLOT_MS) * SLOT_MS + SLOT_MS;
 	}
 
+	// Epoch ms (plus a small latency buffer) of the next slot boundary that will
+	// publish THIS feed — not just the next alarm. Vehicles publish on every slot
+	// except slot 3 (which fetches TripUpdates); TripUpdates publish only on slot 3.
+	// So each feed has its own cadence and clients must be told the feed-specific time.
+	private nextPublishBoundary(isTripUpdates: boolean): number {
+		// `n` = how many whole slots have elapsed since the epoch. The current slot
+		// number in the cycle is n % 4; n+1 is the next slot, n+2 the one after, etc.
+		const n = Math.floor(Date.now() / SLOT_MS);
+
+		// Walk forward one slot at a time, looking ahead up to a full cycle (4 slots),
+		// and stop at the first upcoming slot that publishes the feed we care about.
+		for (let k = 1; k <= CYCLE_SLOTS; k++) {
+			// Is the slot k steps ahead the TripUpdates slot (slot 3 in the cycle)?
+			const isTripSlot = (n + k) % CYCLE_SLOTS === 3;
+
+			// Match found when that slot's type equals the feed we're asking about:
+			//   - TripUpdates feed → we want the trip slot      (isTripSlot === true)
+			//   - Vehicles feed    → we want any non-trip slot  (isTripSlot === false)
+			if (isTripSlot === isTripUpdates) {
+				// Convert that slot index back to a wall-clock time, then add the buffer
+				// so the advertised instant is just after the bytes are actually written.
+				return (n + k) * SLOT_MS + PUBLISH_LATENCY_BUFFER_MS;
+			}
+		}
+
+		// Unreachable: within any 4 consecutive slots there's always one trip slot and
+		// three vehicle slots, so the loop above always returns. This is a safety net.
+		return (n + 1) * SLOT_MS + PUBLISH_LATENCY_BUFFER_MS;
+	}
+
 	private async poll(): Promise<void> {
 		const slot = Math.floor(Date.now() / SLOT_MS) % CYCLE_SLOTS;
 
 		if (slot === 3) {
 			const bytes = await this.fetchNta("/TripUpdates", this.env.NTA_API_KEY_2);
-			if (bytes) await this.publish(FEED_KV_TRIPUPDATES, bytes);
+			if (bytes) await this.publish(FEED_KV_TRIPUPDATES, bytes, this.nextPublishBoundary(true));
 		} else {
 			// slots 0 & 2 → KEY_1, slot 1 → KEY_2 (each token reused every 64s)
 			const apiKey = slot % 2 === 0 ? this.env.NTA_API_KEY_1 : this.env.NTA_API_KEY_2;
 			const bytes = await this.fetchNta("/Vehicles", apiKey);
-			if (bytes) await this.publish(FEED_KV_VEHICLES, bytes);
+			if (bytes) await this.publish(FEED_KV_VEHICLES, bytes, this.nextPublishBoundary(false));
 		}
 	}
 
-	private async publish(key: string, bytes: Uint8Array): Promise<void> {
-		await this.env.RT_FEED_KV.put(key, bytes, { expirationTtl: FEED_KV_TTL });
-		console.log(`[poller] published ${key} (${bytes.length}B)`);
+	private async publish(key: string, bytes: Uint8Array, nextUpdateAt: number): Promise<void> {
+		const metadata: FeedMetadata = { nextUpdateAt };
+		await this.env.RT_FEED_KV.put(key, bytes, { expirationTtl: FEED_KV_TTL, metadata });
+		console.log(`[poller] published ${key} (${bytes.length}B) nextUpdateAt=${nextUpdateAt}`);
 	}
 
 	private async fetchNta(path: string, apiKey: string): Promise<Uint8Array | null> {

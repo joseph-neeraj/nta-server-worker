@@ -10,6 +10,27 @@
 
 import { gunzip } from "./compress";
 
+/** Header that advertises the epoch-ms instant the live data will next refresh. */
+export const NEXT_UPDATE_HEADER = "X-Next-Update-At";
+
+/** Header fragment for a final Response. Empty when nextUpdateAt is unknown (cold start). */
+export function nextUpdateHeaders(nextUpdateAt: number | null): Record<string, string> {
+	if (nextUpdateAt == null) return {};
+	return {
+		[NEXT_UPDATE_HEADER]: String(nextUpdateAt),
+		// Let browser clients read the custom header from cross-origin responses.
+		"Access-Control-Expose-Headers": NEXT_UPDATE_HEADER,
+	};
+}
+
+/** Parses nextUpdateAt back off a cached Response; null if absent or malformed. */
+export function readNextUpdateAt(res: Response): number | null {
+	const raw = res.headers.get(NEXT_UPDATE_HEADER);
+	if (raw == null) return null;
+	const n = Number(raw);
+	return Number.isFinite(n) ? n : null;
+}
+
 export class ProtoCache {
 	private cache: Cache;
 
@@ -30,19 +51,20 @@ export class ProtoCache {
 	/**
 	 * Stores compressed proto bytes in the edge cache via ctx.waitUntil.
 	 * Fire-and-forget — the current response is not blocked by this write.
+	 *
+	 * nextUpdateAt (epoch ms, optional) is baked into the cached Response as the
+	 * X-Next-Update-At header so subsequent cache hits — which return the cached
+	 * Response verbatim — still advertise the next refresh time.
 	 */
-	put(key: Request, compressedBytes: Uint8Array, ttl: number): void {
+	put(key: Request, compressedBytes: Uint8Array, ttl: number, nextUpdateAt?: number | null): void {
+		const headers: Record<string, string> = {
+			"Content-Type": "application/x-protobuf",
+			"Content-Encoding": "gzip",
+			"Cache-Control": `public, max-age=${ttl}`,
+			...nextUpdateHeaders(nextUpdateAt ?? null),
+		};
 		this.ctx.waitUntil(
-			this.cache.put(
-				key,
-				new Response(compressedBytes, {
-					headers: {
-						"Content-Type": "application/x-protobuf",
-						"Content-Encoding": "gzip",
-						"Cache-Control": `public, max-age=${ttl}`,
-					},
-				}),
-			),
+			this.cache.put(key, new Response(compressedBytes, { headers })),
 		);
 	}
 }

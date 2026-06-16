@@ -117,7 +117,15 @@ export interface StopArrival {
    * Use these instead of parsing the string fields when you need wall-clock comparisons.
    */
   scheduledArrivalUtc?: number | undefined;
-  scheduledDepartureUtc?: number | undefined;
+  scheduledDepartureUtc?:
+    | number
+    | undefined;
+  /** Live vehicle proximity — absent if no vehicle position is available for this trip. */
+  distanceM?:
+    | number
+    | undefined;
+  /** true if the bus has already passed this stop */
+  hasPassed?: boolean | undefined;
 }
 
 /**
@@ -1176,6 +1184,8 @@ function createBaseStopArrival(): StopArrival {
     departureDelay: undefined,
     scheduledArrivalUtc: undefined,
     scheduledDepartureUtc: undefined,
+    distanceM: undefined,
+    hasPassed: undefined,
   };
 }
 
@@ -1216,6 +1226,12 @@ export const StopArrival: MessageFns<StopArrival> = {
     }
     if (message.scheduledDepartureUtc !== undefined) {
       writer.uint32(96).uint64(message.scheduledDepartureUtc);
+    }
+    if (message.distanceM !== undefined) {
+      writer.uint32(104).uint32(message.distanceM);
+    }
+    if (message.hasPassed !== undefined) {
+      writer.uint32(112).bool(message.hasPassed);
     }
     return writer;
   },
@@ -1323,6 +1339,22 @@ export const StopArrival: MessageFns<StopArrival> = {
           message.scheduledDepartureUtc = longToNumber(reader.uint64());
           continue;
         }
+        case 13: {
+          if (tag !== 104) {
+            break;
+          }
+
+          message.distanceM = reader.uint32();
+          continue;
+        }
+        case 14: {
+          if (tag !== 112) {
+            break;
+          }
+
+          message.hasPassed = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1394,6 +1426,16 @@ export const StopArrival: MessageFns<StopArrival> = {
         : isSet(object.scheduled_departure_utc)
         ? globalThis.Number(object.scheduled_departure_utc)
         : undefined,
+      distanceM: isSet(object.distanceM)
+        ? globalThis.Number(object.distanceM)
+        : isSet(object.distance_m)
+        ? globalThis.Number(object.distance_m)
+        : undefined,
+      hasPassed: isSet(object.hasPassed)
+        ? globalThis.Boolean(object.hasPassed)
+        : isSet(object.has_passed)
+        ? globalThis.Boolean(object.has_passed)
+        : undefined,
     };
   },
 
@@ -1435,6 +1477,12 @@ export const StopArrival: MessageFns<StopArrival> = {
     if (message.scheduledDepartureUtc !== undefined) {
       obj.scheduledDepartureUtc = Math.round(message.scheduledDepartureUtc);
     }
+    if (message.distanceM !== undefined) {
+      obj.distanceM = Math.round(message.distanceM);
+    }
+    if (message.hasPassed !== undefined) {
+      obj.hasPassed = message.hasPassed;
+    }
     return obj;
   },
 
@@ -1455,6 +1503,8 @@ export const StopArrival: MessageFns<StopArrival> = {
     message.departureDelay = object.departureDelay ?? undefined;
     message.scheduledArrivalUtc = object.scheduledArrivalUtc ?? undefined;
     message.scheduledDepartureUtc = object.scheduledDepartureUtc ?? undefined;
+    message.distanceM = object.distanceM ?? undefined;
+    message.hasPassed = object.hasPassed ?? undefined;
     return message;
   },
 };

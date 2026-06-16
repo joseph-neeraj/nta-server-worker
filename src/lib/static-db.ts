@@ -145,12 +145,12 @@ export class StaticDb {
 				this.db
 					.prepare(
 						`SELECT trip_id, stop_sequence, arrival_time, departure_time,
-						        route_short_name, agency_id, trip_headsign, direction_id, service_date
+						        route_short_name, agency_id, trip_headsign, direction_id, service_date, shape_id
 						 FROM (
 						   -- ── Part 1: today's active services (all scheduled times) ──────────────
 						   SELECT st.trip_id, st.stop_sequence, st.arrival_time, st.departure_time,
 						          r.route_short_name, r.agency_id, t.trip_headsign, t.direction_id,
-						          ? AS service_date
+						          ? AS service_date, t.shape_id
 						   FROM stop_times st
 						   JOIN trips t  ON st.trip_id = t.trip_id
 						   JOIN routes r ON t.route_id = r.route_id
@@ -173,7 +173,7 @@ export class StaticDb {
 						          st.arrival_time,
 						          st.departure_time,
 						          r.route_short_name, r.agency_id, t.trip_headsign, t.direction_id,
-						          ? AS service_date
+						          ? AS service_date, t.shape_id
 						   FROM stop_times st
 						   JOIN trips t  ON st.trip_id = t.trip_id
 						   JOIN routes r ON t.route_id = r.route_id
@@ -227,6 +227,39 @@ export class StaticDb {
 		} catch {
 			return "error";
 		}
+	}
+
+	/**
+	 * Returns shape points for the given shape IDs, grouped by shape_id.
+	 * Points are ordered by shape_pt_sequence. shape_dist_traveled is in metres.
+	 * Shape IDs not present in the DB are simply absent from the returned Map.
+	 */
+	async getShapesByIds(shapeIds: string[]): Promise<Map<string, { lat: number; lon: number; distM: number }[]>> {
+		const map = new Map<string, { lat: number; lon: number; distM: number }[]>();
+		if (shapeIds.length === 0) return map;
+
+		const placeholders = shapeIds.map(() => "?").join(",");
+		const result = await this.db
+			.prepare(
+				`SELECT shape_id, shape_pt_lat, shape_pt_lon, shape_dist_traveled
+				 FROM shapes
+				 WHERE shape_id IN (${placeholders})
+				 ORDER BY shape_id, shape_pt_sequence`,
+			)
+			.bind(...shapeIds)
+			.all();
+
+		for (const row of result.results as Record<string, unknown>[]) {
+			const id = row.shape_id as string;
+			if (!map.has(id)) map.set(id, []);
+			map.get(id)!.push({
+				lat: row.shape_pt_lat as number,
+				lon: row.shape_pt_lon as number,
+				distM: (row.shape_dist_traveled as number) ?? 0,
+			});
+		}
+
+		return map;
 	}
 
 	/**

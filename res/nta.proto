@@ -103,6 +103,9 @@ message StopArrival {
   // Use these instead of parsing the string fields when you need wall-clock comparisons.
   optional uint64 scheduled_arrival_utc   = 11;
   optional uint64 scheduled_departure_utc = 12;
+  // Live vehicle proximity — absent if no vehicle position is available for this trip.
+  optional uint32 distance_m = 13; // metres along the route shape between the bus and this stop
+  optional bool   has_passed = 14; // true if the bus has already passed this stop
 }
 
 // ─── /v1/live/trips/{trip_id} ───────────────────────────────────────────────

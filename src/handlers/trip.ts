@@ -68,7 +68,7 @@ export async function handleTripFetch(request: Request, env: Env, ctx: Execution
 		details = TripDetails.decode(rawBytes);
 		nextUpdateAt = readNextUpdateAt(cachedProto);
 		lastUpdateAt = readLastUpdateAt(cachedProto);
-	} else {
+	} else {``
 		// Cache miss — fetch from D1 and NTA in parallel
 		const [dbResult, delayUpdates] = await Promise.all([
 			new StaticDb(env.nta_static).getTrip(trip_id),

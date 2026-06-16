@@ -25,14 +25,16 @@
 //   ]
 // }
 
-import { NtaClient, tripUpdateCacheKey } from "../lib/nta-client";
+import { NtaClient, tripUpdateCacheKey, VEHICLE_CACHE_TTL } from "../lib/nta-client";
 import { StopSchedule } from "../generated/res/nta";
 import { gzip } from "../lib/compress";
 import { buildErrorResponse } from "../lib/error-response";
 import { ProtoCache, feedHeaders, readNextUpdateAt, readLastUpdateAt, cacheMaxAge } from "../lib/proto-cache";
 import { StaticDb } from "../lib/static-db";
+import { vehicleProximityToStop } from "../lib/shape-projection";
 
-const CACHE_TTL = 120; // 2 minutes — schedule can change in real time
+// Cache TTL is VEHICLE_CACHE_TTL — the stop schedule now includes live vehicle
+// proximity, so freshness is bound by the vehicle position refresh cadence.
 
 export async function handleStopSchedule(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 	const accept = request.headers.get("Accept");
@@ -67,10 +69,12 @@ export async function handleStopSchedule(request: Request, env: Env, ctx: Execut
 		nextUpdateAt = readNextUpdateAt(cachedProto);
 		lastUpdateAt = readLastUpdateAt(cachedProto);
 	} else {
-		// Cache miss — fetch static schedule and live delays in parallel
-		const [dbResult, feedResult] = await Promise.all([
+		// Cache miss — fetch static schedule, live delays, and vehicle positions in parallel
+		const ntaClient = new NtaClient(env);
+		const [dbResult, tripUpdatesResult, vehiclesResult] = await Promise.all([
 			new StaticDb(env.nta_static).getStopWithArrivals(stop_id),
-			new NtaClient(env).fetchTripUpdates(),
+			ntaClient.fetchTripUpdates(),
+			ntaClient.fetchVehicles(),
 		]);
 
 		if (dbResult === null) {
@@ -80,9 +84,9 @@ export async function handleStopSchedule(request: Request, env: Env, ctx: Execut
 			return buildErrorResponse(500, "Database error", accept, "Something went wrong. Please try again shortly.");
 		}
 
-		const feed = feedResult?.feed;
-		nextUpdateAt = feedResult?.metadata?.nextUpdateAt ?? null;
-		lastUpdateAt = feedResult?.metadata?.lastUpdateAt ?? null;
+		const feed = tripUpdatesResult?.feed;
+		nextUpdateAt = tripUpdatesResult?.metadata?.nextUpdateAt ?? null;
+		lastUpdateAt = tripUpdatesResult?.metadata?.lastUpdateAt ?? null;
 		const { stopRow, arrivalRows } = dbResult;
 
 		// Build a lookup of trip_id → delay data from the TripUpdates feed.
@@ -102,6 +106,33 @@ export async function handleStopSchedule(request: Request, env: Env, ctx: Execut
 			}
 		}
 
+		// Build vehicle position lookup: trip_id → { lat, lon }
+		const vehicleByTripId = new Map<string, { lat: number; lon: number }>();
+		if (vehiclesResult?.feed) {
+			for (const entity of vehiclesResult.feed.entity) {
+				const v = entity.vehicle;
+				if (!v?.trip?.tripId || v.position == null) continue;
+				const { latitude: lat, longitude: lon } = v.position;
+				// Skip malformed position reports (NaN / Infinity seen from NTA feed)
+				if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+				vehicleByTripId.set(v.trip.tripId, { lat, lon });
+			}
+		}
+
+		// Fetch shape point data only for trips that have a live vehicle position —
+		// avoids loading shape data for the bulk of scheduled-but-not-yet-running trips.
+		const liveShapeIds = [...new Set(
+			arrivalRows
+				.filter((r) => vehicleByTripId.has(r.trip_id as string) && r.shape_id)
+				.map((r) => r.shape_id as string),
+		)];
+		const shapesByIdMap = liveShapeIds.length > 0
+			? await new StaticDb(env.nta_static).getShapesByIds(liveShapeIds)
+			: new Map();
+
+		const stopLat = stopRow.stop_lat as number;
+		const stopLon = stopRow.stop_lon as number;
+
 		schedule = {
 			stopId: stopRow.stop_id as string,
 			stopCode: (stopRow.stop_code as string) ?? "",
@@ -109,30 +140,39 @@ export async function handleStopSchedule(request: Request, env: Env, ctx: Execut
 			stopLat: stopRow.stop_lat as number,
 			stopLon: stopRow.stop_lon as number,
 			...(feed?.header?.timestamp != null ? { realtimeTimestamp: feed.header.timestamp } : {}),
-			arrivals: arrivalRows.map((r) => ({
-				tripId: r.trip_id as string,
-				routeShortName: (r.route_short_name as string) ?? "",
-				tripHeadsign: (r.trip_headsign as string) ?? "",
-				directionId: (r.direction_id as number) ?? 0,
-				stopSequence: r.stop_sequence as number,
-				scheduledArrival: (r.arrival_time as string) ?? "",
-				scheduledDeparture: (r.departure_time as string) ?? "",
-				agencyId: (r.agency_id as string) ?? "",
-				...(r.arrival_utc != null ? { scheduledArrivalUtc: r.arrival_utc as number } : {}),
-				...(r.departure_utc != null ? { scheduledDepartureUtc: r.departure_utc as number } : {}),
-				...delayByTripId.get(r.trip_id as string),
-			})),
+			arrivals: arrivalRows.map((r) => {
+				const tripId = r.trip_id as string;
+				const vehicle = vehicleByTripId.get(tripId);
+				const shape   = vehicle ? shapesByIdMap.get(r.shape_id as string) : undefined;
+				const proximity = vehicle && shape
+					? vehicleProximityToStop(shape, stopLat, stopLon, vehicle.lat, vehicle.lon)
+					: null;
+				return {
+					tripId,
+					routeShortName: (r.route_short_name as string) ?? "",
+					tripHeadsign: (r.trip_headsign as string) ?? "",
+					directionId: (r.direction_id as number) ?? 0,
+					stopSequence: r.stop_sequence as number,
+					scheduledArrival: (r.arrival_time as string) ?? "",
+					scheduledDeparture: (r.departure_time as string) ?? "",
+					agencyId: (r.agency_id as string) ?? "",
+					...(r.arrival_utc != null ? { scheduledArrivalUtc: r.arrival_utc as number } : {}),
+					...(r.departure_utc != null ? { scheduledDepartureUtc: r.departure_utc as number } : {}),
+					...(proximity != null ? { distanceM: proximity.distanceM, hasPassed: proximity.hasPassed } : {}),
+					...delayByTripId.get(tripId),
+				};
+			}),
 		};
 
 		const rawBytes = StopSchedule.encode(schedule).finish();
 		console.log(`[stop:${stop_id}] proto raw=${rawBytes.length}B arrivals=${schedule.arrivals.length}`);
 		compressedProto = await gzip(rawBytes);
 		console.log(`[stop:${stop_id}] proto gzip=${compressedProto.length}B (${Math.round((1 - compressedProto.length / rawBytes.length) * 100)}% reduction)`);
-		protoCache.put(cacheKey, compressedProto, cacheMaxAge(nextUpdateAt, CACHE_TTL), nextUpdateAt, lastUpdateAt);
+		protoCache.put(cacheKey, compressedProto, cacheMaxAge(nextUpdateAt, VEHICLE_CACHE_TTL), nextUpdateAt, lastUpdateAt);
 	}
 
 	// Align HTTP freshness with the advertised next refresh (fixed TTL only on cold start).
-	const maxAge = cacheMaxAge(nextUpdateAt, CACHE_TTL);
+	const maxAge = cacheMaxAge(nextUpdateAt, VEHICLE_CACHE_TTL);
 
 	if (accept === "application/json") {
 		return new Response(JSON.stringify(StopSchedule.toJSON(schedule)), {

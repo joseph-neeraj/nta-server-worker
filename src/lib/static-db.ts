@@ -233,30 +233,46 @@ export class StaticDb {
 	 * Returns shape points for the given shape IDs, grouped by shape_id.
 	 * Points are ordered by shape_pt_sequence. shape_dist_traveled is in metres.
 	 * Shape IDs not present in the DB are simply absent from the returned Map.
+	 *
+	 * D1 caps bound parameters at 100 per query — IDs are chunked and batched.
+	 * Hard cap of 200 IDs total (two D1 queries max); anything beyond is dropped.
+	 * Returns an empty Map on D1 failure so proximity data degrades gracefully.
 	 */
 	async getShapesByIds(shapeIds: string[]): Promise<Map<string, { lat: number; lon: number; distM: number }[]>> {
 		const map = new Map<string, { lat: number; lon: number; distM: number }[]>();
 		if (shapeIds.length === 0) return map;
 
-		const placeholders = shapeIds.map(() => "?").join(",");
-		const result = await this.db
-			.prepare(
-				`SELECT shape_id, shape_pt_lat, shape_pt_lon, shape_dist_traveled
-				 FROM shapes
-				 WHERE shape_id IN (${placeholders})
-				 ORDER BY shape_id, shape_pt_sequence`,
-			)
-			.bind(...shapeIds)
-			.all();
+		// Cap at 200 total (2 × 100-param D1 queries)
+		const ids = shapeIds.slice(0, 200);
+		const chunks: string[][] = [];
+		for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
 
-		for (const row of result.results as Record<string, unknown>[]) {
-			const id = row.shape_id as string;
-			if (!map.has(id)) map.set(id, []);
-			map.get(id)!.push({
-				lat: row.shape_pt_lat as number,
-				lon: row.shape_pt_lon as number,
-				distM: (row.shape_dist_traveled as number) ?? 0,
-			});
+		try {
+			const batchResults = await this.db.batch(
+				chunks.map((chunk) =>
+					this.db
+						.prepare(
+							`SELECT shape_id, shape_pt_lat, shape_pt_lon, shape_dist_traveled
+							 FROM shapes
+							 WHERE shape_id IN (${chunk.map(() => "?").join(",")})
+							 ORDER BY shape_id, shape_pt_sequence`,
+						)
+						.bind(...chunk),
+				),
+			);
+
+			for (const { results } of batchResults) {
+				for (const row of results as Record<string, unknown>[]) {
+					const id = row.shape_id as string;
+					const lat = row.shape_pt_lat as number;
+					const lon = row.shape_pt_lon as number;
+					if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+					if (!map.has(id)) map.set(id, []);
+					map.get(id)!.push({ lat, lon, distM: (row.shape_dist_traveled as number) ?? 0 });
+				}
+			}
+		} catch {
+			// Non-fatal — proximity fields will simply be absent from the response
 		}
 
 		return map;
